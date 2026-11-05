@@ -4,7 +4,155 @@
 ##### -------------------------------------------------------------------- #####
 ##### -------------------------------------------------------------------- #####
 
-# Monthly mean age with environmental variables individually by month
+# Annual mean age analysis with environmental variables
+
+# -----------------------------
+# 4.1 Summarize hake data into annual mean age and combine with environmental variables
+# -----------------------------
+
+# summarise annual mean age
+annual_age <- lwa %>%
+  group_by(Year) %>% 
+  summarise(mean_age = mean(Age_yrs_numeric, na.rm = TRUE),
+            median_age = median(Age_yrs_numeric, na.rm = TRUE),
+            age_sd = sd(Age_yrs_numeric, na.rm = TRUE),
+            age_q25 = quantile(Age_yrs_numeric, probs = 0.25, na.rm = TRUE),
+            age_q75 = quantile(Age_yrs_numeric, probs = 0.75, na.rm = TRUE),
+            age_iqr = IQR(Age_yrs_numeric, na.rm = TRUE),
+            n_fish = sum(!is.na(Age_yrs_numeric)),
+            n_sources = n_distinct(Source[!is.na(Source)]),
+            .groups = "drop") %>%
+  ungroup() %>%
+  mutate(Year = as.numeric(as.character(Year)))
+
+# summarise seasonal environmental variables
+env_seasonal_summarise <- env_long %>%
+  group_by(year, covariate) %>%
+  summarise(jantomar = mean(value[month %in% 1:3], na.rm = TRUE),
+            aprtojune = mean(value[month %in% 4:6], na.rm = TRUE),
+            julytosept = mean(value[month %in% 7:9], na.rm = TRUE),
+            octtodec = mean(value[month %in% 10:12], na.rm = TRUE),
+            .groups = "drop") %>%
+  pivot_longer(cols = c(jantomar, aprtojune, julytosept, octtodec),
+               names_to = "season",
+               values_to = "value") %>%
+  mutate(covariate = paste(covariate, season, sep = "_")) %>%
+  mutate(yearlag1 = year + 1) %>%
+  select(-season) %>%
+  pivot_wider(names_from = covariate, values_from = value)
+
+# join environmental data as an AR(1) (1 year lag) to annual mean age data
+annual_age_env <- annual_age %>%
+  left_join(env_seasonal_summarise %>% select(-year), 
+            by = c("Year" = "yearlag1")) %>%
+  arrange(Year) 
+
+# -----------------------------
+# 4.2 Plot mean sampled age through time and env variables over time
+# -----------------------------
+
+# plot env variables over time
+p_env_variables_time <- annual_age_env %>%
+  pivot_longer(cols = starts_with(c("pdo", "npgo", "oni", "bi", "npi", "mei")),
+               names_to = "covariate",
+               values_to = "value") %>%
+  mutate(index = toupper(sub("_.*", "", covariate)),
+         window = sub(".*_", "", covariate)) %>%
+  filter(window == "aprtojune") %>%
+  ggplot(aes(x = Year, y = value)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE, color = "blue") +
+    facet_wrap(~ index, scales = "free") +
+    labs(title = "Environmental variables over time (Apr-Jun)",
+         x = NULL,
+         y = "Standardized value") +
+    theme_classic()
+
+p_env_variables_time
+
+# save plot
+ggsave(p_env_variables_time, filename = "figures/env_variables_over_time_spring_plot.png", width = 8, height = 5, units = "in", dpi = 300)
+
+
+# mean age over time
+p_annual_mean_age <- ggplot(annual_age_env, aes(x = Year, y = mean_age)) +
+  geom_line(linewidth = 0.5) +
+  geom_point(aes(size = n_fish), alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  scale_size_continuous(trans = "sqrt") +
+  labs(title = "Annual mean age of sampled fish",
+       x = NULL,
+       y = "Mean age (years)",
+       size = "Fish sampled") +
+  theme_classic()
+
+p_annual_mean_age
+
+# save plot
+ggsave(p_annual_mean_age, filename = "figures/annual_mean_age_plot.png", width = 8, height = 5, units = "in", dpi = 300)
+
+# -----------------------------
+# 4.3 Plot mean age correlations with environmental variables
+# -----------------------------
+
+p_annual_mean_age_env_correlations <- annual_age_env %>%
+  pivot_longer(cols = starts_with(c("pdo", "npgo", "oni", "bi", "npi", "mei")),
+               names_to = "covariate",
+               values_to = "value") %>%
+  mutate(index = toupper(sub("_.*", "", covariate)),
+         window = sub(".*_", "", covariate)) %>%
+  ggplot(aes(x = value, y = mean_age)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  facet_wrap(index ~ window, scales = "free", ncol = 4) +
+  labs(title = "Annual mean age correlations with environmental variables",
+       x = "Environmental variable (standardized)",
+       y = "Mean age (years)") +
+  theme_classic()
+
+p_annual_mean_age_env_correlations
+
+# save figure
+ggsave(p_annual_mean_age_env_correlations, filename = "figures/")
+
+
+# ggpairs plot with one season at a time
+annual_age_env %>%
+  pivot_longer(cols = starts_with(c("pdo", "npgo", "oni", "bi", "npi", "mei")),
+               names_to = "covariate",
+               values_to = "value") %>%
+  mutate(index = toupper(sub("_.*", "", covariate)),
+         window = sub(".*_", "", covariate)) %>%
+  filter(window == "aprtojun") %>%
+  ggplot() +
+
+
+# -----------------------------
+# 4.4 Analysis of mean age and environmental variables
+# -----------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # -----------------------------
 # 4.1 Define the environmental variables
@@ -35,6 +183,7 @@ missing_env_variables <- setdiff(
   names(lwa_env)
 )
 
+# should be zero
 missing_env_variables
 
 
@@ -2266,6 +2415,53 @@ imap(
     cat("\nModel:", model_name, "\n")
     print(loo::pareto_k_table(loo_result))
   }
+)
+
+
+
+
+
+# -----------------------------
+# 6.3 Model annual condition relate to annual age
+# -----------------------------
+
+# Simple association
+m_age_condition <- brm(
+  mean_age ~ condition_z,
+  data = annual_joint,
+  family = student(),
+  backend = "cmdstanr",
+  chains = 4,
+  iter = 3000,
+  warmup = 1500,
+  seed = 22
+)
+
+# Adjust for linear time trend
+m_age_condition_year <- brm(
+  mean_age ~ condition_z + year_z,
+  data = annual_joint,
+  family = student(),
+  backend = "cmdstanr",
+  chains = 4,
+  iter = 3000,
+  warmup = 1500,
+  seed = 22
+)
+
+fixef(m_age_condition)
+fixef(m_age_condition_year)
+
+
+m_age_condition_smooth <- brm(
+  mean_age ~ condition_z + s(year, k = 8),
+  data = annual_joint,
+  family = student(),
+  backend = "cmdstanr",
+  chains = 4,
+  iter = 3000,
+  warmup = 1500,
+  seed = 22
 )
 
 
