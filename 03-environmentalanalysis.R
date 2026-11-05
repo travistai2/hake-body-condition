@@ -31,11 +31,11 @@ format_covariate_month <- function(dat, value.col, name) {
 }
 
 # Get environmental covariates
-env_pdo <- format_covariate_month(pdo, "anomaly", "pdo_lagprev1month")
-env_npgo <- format_covariate_month(npgo, "anomaly", "npgo_lagprev1month")
-env_oni <- format_covariate_month(oni, "anomaly", "oni_lagprev1month")
-env_npi <- format_covariate_month(npi_monthly , "value", "npi_lagprev1month")
-env_mei <- format_covariate_month(mei , "anomaly", "mei_lagprev1month")
+env_pdo <- format_covariate_month(pdo, "anomaly", "pdo")
+env_npgo <- format_covariate_month(npgo, "anomaly", "npgo")
+env_oni <- format_covariate_month(oni, "anomaly", "oni")
+env_npi <- format_covariate_month(npi_monthly , "value", "npi")
+env_mei <- format_covariate_month(mei , "anomaly", "mei")
 
 # combine variables
 env_long <- bind_rows(env_pdo, env_npgo, env_oni, env_npi, env_mei)
@@ -43,20 +43,13 @@ env_long <- bind_rows(env_pdo, env_npgo, env_oni, env_npi, env_mei)
 ##
 # seasonal covariates of previous 1, 3, and 6 months - combined into one data set
 
-# estimate prev 1 variables first
-# include lag of 1 month for each variable to match with body condition data
-lag_months <- 1
-env_long <- env_long %>%
-  mutate(month_orig = month,
-         month = month + lag_months) %>%
-  mutate(year = case_when(month > 12 ~ year + 1,
-                          .default = year),
-         month = case_when(month > 12 ~ (month - 12),
-                           .default = month))
-
 # make data wide
 env_wide <- env_long %>%
   pivot_wider(names_from = covariate, values_from = value)
+
+# estimate prev 1 variables first
+# include lag of 1 month for each variable to match with body condition data
+lag_months <- 1
 
 # use lag 1 variable names to then find the average across 3 and 6 months
 lag1_vars <- c(
@@ -68,7 +61,15 @@ lag1_vars <- c(
 )
 
 # formatting data and making 3 and 6 month rolling averages
-env_wide_rolling <- env_wide %>%
+env_wide_rolling <- env_long %>%
+  mutate(covariate = paste(covariate, "lagprev1month", sep = "_"),
+        #  month_orig = month,  # remove this for now as it confuses things
+         month = month + lag_months) %>%
+  mutate(year = case_when(month > 12 ~ year + 1,
+                          .default = year),
+         month = case_when(month > 12 ~ (month - 12),
+                           .default = month)) %>%
+  pivot_wider(names_from = covariate, values_from = value) %>%
   ungroup() %>%
 
   # Create a proper monthly date
@@ -1218,7 +1219,7 @@ env_linear_combined
 # function to summarise environmental covariates over a specified window of months
 summarise_environment_window <- function(data, months, label) {
   data %>%
-    filter(month_orig %in% months) %>%
+    filter(month %in% (months + 1)) %>%
     group_by(year) %>%
     summarise(
       across(
