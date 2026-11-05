@@ -44,9 +44,11 @@ env_long <- bind_rows(env_pdo, env_npgo, env_oni, env_npi, env_mei)
 # seasonal covariates of previous 1, 3, and 6 months - combined into one data set
 
 # estimate prev 1 variables first
+# include lag of 1 month for each variable to match with body condition data
 lag_months <- 1
 env_long <- env_long %>%
-  mutate(month = month + lag_months) %>%
+  mutate(month_orig = month,
+         month = month + lag_months) %>%
   mutate(year = case_when(month > 12 ~ year + 1,
                           .default = year),
          month = case_when(month > 12 ~ (month - 12),
@@ -323,7 +325,7 @@ rm(env_plots)
 
 
 # -----------------------------
-# 1.10 Model-based predicted plots
+# 3.5 Model-based predicted plots
 # -----------------------------
 
 pred_lw <- ggpredict(
@@ -536,29 +538,6 @@ environment_data_list <- selected_condition_draws$.draw_index %>%
   })
 
 length(environment_data_list)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 # -----------------------------
 # 3.13 General function for environmental models
@@ -873,8 +852,7 @@ plot_env_posterior <- function(model, variable) {
     ggplot2::aes(
       x = beta,
       y = variable_label
-    )
-  ) +
+    ) +
     ggdist::stat_halfeye(
       .width = c(0.50, 0.80, 0.95),
       point_interval = ggdist::median_qi,
@@ -904,12 +882,13 @@ plot_env_posterior <- function(model, variable) {
     )
 }
 
+# plot example for PDO previous month
 plot_env_posterior(
-  model = env_models_bayes[["pdo_m_prev1"]],
-  variable = "pdo_m_prev1"
+  model = env_models_bayes[["pdo_lagprev1month"]],
+  variable = "pdo_lagprev1month"
 )
 
-# all plots in facet
+# function to extract posterior draws for a given environmental model and variable
 extract_env_posterior <- function(model, variable) {
 
   coefficient_name <- paste0(
@@ -943,6 +922,7 @@ extract_env_posterior <- function(model, variable) {
   )
 }
 
+# extract posterior draws for all environmental models
 env_posterior_draws <- imap_dfr(
   env_models_bayes,
   \(model, variable) {
@@ -953,6 +933,7 @@ env_posterior_draws <- imap_dfr(
   }
 )
 
+# add index and exposure window information to the posterior draws
 env_posterior_draws <- env_posterior_draws %>%
   mutate(
     index = case_when(
@@ -965,9 +946,9 @@ env_posterior_draws <- env_posterior_draws %>%
     ),
 
     exposure_window = case_when(
-      grepl("_prev1$", model) ~ "Previous month",
-      grepl("_prev3$", model) ~ "Previous 3 months",
-      grepl("_prev6$", model) ~ "Previous 6 months",
+      grepl("_lagprev1month", model) ~ "Previous month",
+      grepl("_lagprev1to3", model) ~ "Previous 3 months",
+      grepl("_lagprev1to6", model) ~ "Previous 6 months",
       TRUE                    ~ "Other"
     ),
 
@@ -986,6 +967,8 @@ env_posterior_draws <- env_posterior_draws %>%
     )
   )
 
+#####
+# plot combined posterior effects for all environmental variables
 env_posterior_combined_plot <- ggplot(
   env_posterior_draws,
   aes(
@@ -1026,8 +1009,8 @@ env_posterior_combined_plot <- ggplot(
 
 env_posterior_combined_plot
 
-
-# percent change in body condition
+#####
+#  plot percent change in body condition
 env_posterior_draws <- env_posterior_draws %>%
   mutate(
     percent_change = 100 * (exp(beta) - 1)
@@ -1070,23 +1053,46 @@ env_percent_change_plot <- ggplot(
 
 env_percent_change_plot
 
+
 # funtion to plot linear relationship
 plot_env_linear <- function(
     variable,
     data = dat_env,
     posterior_draws = env_posterior_draws,
     response = "mean_log_Kn",
-    n_grid = 100
+    n_grid = 100,
+    scaling_table = env_scaling
 ) {
 
   # Extract existing posterior slopes
-  beta_z <- posterior_draws %>%
-    filter(model == variable) %>%
+  variable_draws <- posterior_draws %>%
+    filter(model == variable)
+
+  beta_z <- variable_draws %>%
     pull(beta)
 
   if (length(beta_z) == 0) {
     stop("No posterior draws found for ", variable)
   }
+
+  variable_info <- variable_draws %>%
+    distinct(index, exposure_window)
+
+  if (nrow(variable_info) != 1L) {
+    stop("Expected one index and exposure window for ", variable)
+  }
+
+  index_label <- as.character(variable_info$index[[1]])
+  exposure_window <- as.character(variable_info$exposure_window[[1]])
+
+  window_subtitle <- dplyr::case_when(
+    exposure_window == "Previous month" ~ "Previous month (1-month lag)",
+    exposure_window == "Previous 3 months" ~
+      "Previous 1-3 months (3-month mean)",
+    exposure_window == "Previous 6 months" ~
+      "Previous 1-6 months (6-month mean)",
+    TRUE ~ exposure_window
+  )
 
   # Observed data
   observed <- data %>%
@@ -1102,9 +1108,13 @@ plot_env_linear <- function(
   # IMPORTANT:
   # These must match the scaling used to fit the model.
   mean_x <- mean(observed$x)
-  sd_x <- sd(observed$x)
+  sd_x <- scaling_table[[paste0(variable, "_sd")]]
 
   # Convert standardized posterior slopes to original units
+  if (length(sd_x) != 1L || !is.finite(sd_x) || sd_x <= 0) {
+    stop("Invalid model scaling standard deviation for ", variable)
+  }
+
   beta_original <- beta_z / sd_x
 
   # Anchor the regression lines at the observed means
@@ -1162,243 +1172,284 @@ plot_env_linear <- function(
       linewidth = 0.9
     ) +
     labs(
-      title = toupper(variable),
-      subtitle = "Posterior median slope and 95% credible interval",
-      x = "Environmental index (original units)",
+    #   title = index_label,
+      subtitle = window_subtitle,
+      x = index_label,
       y = "Mean log body condition"
     ) +
     theme_classic(base_size = 12)
 }
 
+# create plots for each environmental variable posterior linear relationship
+env_linear_variables <- env_posterior_draws %>%
+  distinct(model, index, exposure_window) %>%
+  arrange(index, exposure_window) %>%
+  pull(model)
+
 env_linear_plots <- map(
-  unique(env_posterior_draws$model),
-  # unique(env_posterior_draws$model)[order(unique(env_posterior_draws$model))],
+  env_linear_variables,
   plot_env_linear
 )
 
+# combine plots into one figure
 env_linear_combined <- wrap_plots(
   env_linear_plots,
-  ncol = 3
+  ncol = 3,
+  byrow = TRUE
 )
 
+# these are the plots of the linear relationships between each environmental covariate and body condition, with posterior uncertainty shown as ribbons around the median predicted line. The points represent the observed data.
+# environmental data are on original scale, and the predicted lines are based on the posterior draws of the slopes from the Bayesian models, anchored at the mean of the observed data.
 env_linear_combined
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ##### -------------------------------------------------------------------- #####
 ##### -------------------------------------------------------------------- #####
 ##### -------------------------------------------------------------------- #####
 ##### -------------------------------------------------------------------- #####
 ##### -------------------------------------------------------------------- #####
+
+# Seasonal body condition responses to environmental covariates
 
 # -----------------------------
-# 6.1 Annual condition and environment
+# 3.21 Join seasonal condition and environmental covariates
 # -----------------------------
 
+# function to summarise environmental covariates over a specified window of months
+summarise_environment_window <- function(data, months, label) {
+  data %>%
+    filter(month_orig %in% months) %>%
+    group_by(year) %>%
+    summarise(
+      across(
+        matches("^(pdo|npgo|oni|npi|mei)_lagprev1month$"),
+        ~ if (sum(!is.na(.x)) == length(months)) {
+          mean(.x, na.rm = TRUE)
+        } else {
+          NA_real_
+        }
+      ),
+      .groups = "drop"
+    ) %>%
+    rename_with(
+      ~ str_replace(.x, "_lagprev1month$", paste0("_", label)),
+      matches("^(pdo|npgo|oni|npi|mei)_lagprev1month$")
+    )
+}
 
-##### OPTION 1
-# April-June condition, giving each month equal weight
-annual_condition <- cond_monthly %>%
+# summarise environmental covariates for each seasonal window
+summarise_environment <- full_join(
+  summarise_environment_window(env_wide_rolling, 1:3, "jantomar"),  
+  summarise_environment_window(env_wide_rolling, 4:6, "aprtojun"),
+  by = "year") %>% 
+  full_join(
+    summarise_environment_window(env_wide_rolling, 5:7, "maytojul"),
+    by = "year") %>%
+  full_join(
+    summarise_environment_window(env_wide_rolling, 8:10, "augtooct"),
+    by = "year")
+
+# summarise seasonal body condition for spring (april-june) and late summer/early fall (august-october) periods
+summarise_condition <- cond_monthly %>%
+  group_by(year) %>%
+  summarise(
+    mean_log_Kn_aprtojun = mean(mean_log_Kn[month %in% 4:6], na.rm = TRUE),
+    mean_log_Kn_augtooct = mean(mean_log_Kn[month %in% 8:10], na.rm = TRUE),
+    .groups = "drop"
+  )
+
+summarise_condition <- cond_monthly %>%
   filter(month %in% 4:6) %>%
   group_by(year) %>%
   summarise(
     mean_log_Kn = mean(mean_log_Kn, na.rm = TRUE),
-    n_months = sum(!is.na(month)),
     n_fish = sum(n_fish),
     .groups = "drop"
-  ) #%>%
-  # filter(n_months == 3)
+  ) %>% 
+  mutate(window = "aprtojun") %>%
+  bind_rows(
+    cond_monthly %>%
+      filter(month %in% 8:10) %>%
+      group_by(year) %>%
+      summarise(
+        mean_log_Kn = mean(mean_log_Kn, na.rm = TRUE),
+        n_fish = sum(n_fish),
+        .groups = "drop"
+      ) %>%
+    mutate(window = "augtooct")
+  )
 
-# April-June environmental conditions
-# Use existing lagged indices
-annual_environment <- env_wide_rolling %>%
-  filter(month %in% (4:6 + 1)) %>% # add one as we have a lagfor each month
-  group_by(year) %>%
-  summarise(
-    across(
-      matches("^(pdo|npgo|oni|npi|mei)_m_prev[1]$"),
-      ~ if (sum(!is.na(.x)) == 3) {
-        mean(.x)
-      } else {
-        NA_real_
-      }
-    ),
-    .groups = "drop"
-  ) %>%
-  rename_with(~ str_replace(.x, "_m_prev1$", "_annual_same"))
-
-
-##### OPTION 2 -
-# Aug-Oct condition, giving each month equal weight
-annual_condition <- cond_monthly %>%
-  filter(month %in% 8:10) %>%
-  group_by(year) %>%
-  summarise(
-    mean_log_Kn = mean(mean_log_Kn, na.rm = TRUE),
-    n_months = sum(!is.na(month)),
-    n_fish = sum(n_fish),
-    .groups = "drop"
-  ) #%>%
-# filter(n_months == 3)
-
-# Aug-Oct environmental conditions
-# Use existing lagged indices
-annual_environment <- env_wide_rolling %>%
-  filter(month %in% (8:10 + 1)) %>% # add one as we have a lagfor each month
-  group_by(year) %>%
-  summarise(
-    across(
-      matches("^(pdo|npgo|oni|npi|mei)_m_prev[1]$"),
-      ~ if (sum(!is.na(.x)) == 3) {
-        mean(.x)
-      } else {
-        NA_real_
-      }
-    ),
-    .groups = "drop"
-  ) %>%
-  rename_with(~ str_replace(.x, "_m_prev1$", "_annual_same"))
-
-
-
-# Join condition, environment, and age
-annual_joint <- annual_condition %>%
-  left_join(annual_environment, by = "year") %>%
-  inner_join(
-    annual_age_env %>%
-      transmute(
-        year = as.integer(Year),
-        mean_age = mean_age
-      ),
-    by = "year"
+# join seasonal condition and environmental covariates
+seasonal_joint <- summarise_condition %>%
+  left_join(
+    summarise_environment,
+    by = c("year")
   ) %>%
   arrange(year) %>%
-  mutate(
+  mutate(   
     year_z = as.numeric(scale(year)),
     condition_z = as.numeric(scale(mean_log_Kn))
   )
 
-glimpse(annual_joint)
+glimpse(seasonal_joint)
 
 
 # -----------------------------
-# 6.2 plot age and condition together
+# 3.22 Plot seasonal body condition with environmental covariates
 # -----------------------------
 
-annual_joint %>%
-  select(year, mean_age, mean_log_Kn) %>%
+# convert to long format for plotting
+seasonal_joint_long <- seasonal_joint %>%
+  filter(window == "aprtojun") %>%
+  select(-n_fish, -window, -year_z, -condition_z) %>%
   pivot_longer(
-    cols = c(mean_age, mean_log_Kn),
-    names_to = "response",
-    values_to = "value"
+    cols = c(-year, -mean_log_Kn),
+    names_to = c("index", "window"),
+    names_sep = "_",      
+    values_to = "value")  %>%
+  mutate(
+    window = recode(
+      window,
+      jantomar = "Jan to Mar",
+      aprtojun = "Apr to Jun",
+      maytojul = "May to Jul",
+      augtooct = "Aug to Oct"
+    ),
+    window = factor(
+      window,
+      levels = c("Jan to Mar", "Apr to Jun", "May to Jul", "Aug to Oct")
+    )
   ) %>%
-  group_by(response) %>%
+  group_by(index, window) %>%
   mutate(value_z = as.numeric(scale(value))) %>%
-  ungroup() %>%
-  ggplot(aes(year, value_z, colour = response)) +
+  ungroup()
+
+# plot seasonal environmental covariates over time
+ggplot(seasonal_joint_long, aes(year, value_z, colour = index)) +
+  facet_grid(index ~ window) +
   geom_line(alpha = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.5) +
   geom_point(size = 1.5) +
   geom_smooth(
     method = "loess",
     se = FALSE,
-    linewidth = 1
+    linewidth = 1,
   ) +
   labs(
     x = "Year",
     y = "Standardized value",
     colour = NULL,
-    title = "Temporal patterns in fish age and body condition"
+    title = "Temporal patterns in seasonal environmental covariates"
+  ) +
+  theme_classic()
+
+# plot spring body condition and environmental covariates
+spring_join_long <- seasonal_joint %>%
+  filter(window == "aprtojun") %>%
+  select(-n_fish, -window, -year_z, -condition_z, -contains("maytojul"), -contains("augtooct")) %>%
+  pivot_longer(
+    cols = c(-year, -mean_log_Kn),
+    names_to = c("index", "window"),
+    names_sep = "_",      
+    values_to = "value") %>%
+  mutate(
+    window = recode(
+      window,
+      jantomar = "Jan to Mar",
+      aprtojun = "Apr to Jun",
+    ),
+    window = factor(
+      window,
+      levels = c("Jan to Mar", "Apr to Jun")
+    )
+  ) %>%
+  group_by(index, window) %>%
+  mutate(value_z = as.numeric(scale(value))) %>%
+  ungroup()
+
+ggplot(spring_join_long, aes(value_z, mean_log_Kn, colour = index)) +
+  facet_grid(index ~ window) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.5) +
+  geom_point(size = 1.5) +
+  geom_smooth(
+    method = "lm",
+    se = FALSE,
+    linewidth = 1,
+  ) +
+  labs(
+    x = "Standardized value",
+    y = "Standardized body condition",
+    colour = NULL,
+    title = "Temporal patterns in spring body condition and environmental covariates"
   ) +
   theme_classic()
 
 
+# plot fall body condition and environmental covariates over time
+fall_join_long <- seasonal_joint %>%
+  filter(window == "augtooct") %>%
+  select(-n_fish, -window, -year_z, -condition_z, -contains("jantomar"), -contains("aprtojun")) %>%
+  pivot_longer(
+    cols = c(-year, -mean_log_Kn),
+    names_to = c("index", "window"),
+    names_sep = "_",      
+    values_to = "value") %>%
+  mutate(
+    window = recode(
+      window,
+      maytojul = "May to Jul",
+      augtooct = "Aug to Oct"
+    ),
+    window = factor(
+      window,
+      levels = c("May to Jul", "Aug to Oct")
+    )
+  ) %>%
+  group_by(index, window) %>%
+  mutate(value_z = as.numeric(scale(value))) %>%
+  ungroup()
 
-
-# -----------------------------
-# 6.3 Model annual condition relate to annual age
-# -----------------------------
-
-# Simple association
-m_age_condition <- brm(
-  mean_age ~ condition_z,
-  data = annual_joint,
-  family = student(),
-  backend = "cmdstanr",
-  chains = 4,
-  iter = 3000,
-  warmup = 1500,
-  seed = 22
-)
-
-# Adjust for linear time trend
-m_age_condition_year <- brm(
-  mean_age ~ condition_z + year_z,
-  data = annual_joint,
-  family = student(),
-  backend = "cmdstanr",
-  chains = 4,
-  iter = 3000,
-  warmup = 1500,
-  seed = 22
-)
-
-fixef(m_age_condition)
-fixef(m_age_condition_year)
-
-
-m_age_condition_smooth <- brm(
-  mean_age ~ condition_z + s(year, k = 8),
-  data = annual_joint,
-  family = student(),
-  backend = "cmdstanr",
-  chains = 4,
-  iter = 3000,
-  warmup = 1500,
-  seed = 22
-)
-
-
+ggplot(fall_join_long, aes(value_z, mean_log_Kn, colour = index)) +
+  facet_grid(index ~ window) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.5) +
+  geom_point(size = 1.5) +
+  geom_smooth(
+    method = "lm",
+    se = FALSE,
+    linewidth = 1,
+  ) +
+  labs(
+    x = "Standardized value",
+    y = "Standardized body condition",
+    colour = NULL,
+    title = "Temporal patterns in fall body condition and environmental covariates"
+  ) +
+  theme_classic()
 
 # -----------------------------
-# 6.4 Environment effects on body condition
+# 3.23 Environment effects on body condition
 # -----------------------------
 
 # Select environmental indices
-annual_env_vars <- c(
-  "pdo_annual_same",
-  # "pdo_annual_prior",
-  "npgo_annual_same",
-  # "npgo_annual_prior",
-  "oni_annual_same",
-  # "oni_annual_prior",
-  "npi_annual_same",
-  # "npi_annual_prior",
-  "mei_annual_same"
-  # "mei_annual_prior"
+spring_env_vars <- c(
+  "pdo_jantomar",
+  "npgo_jantomar",
+  "oni_jantomar",
+  "npi_jantomar",
+  "mei_jantomar",
+  "pdo_aprtojun",
+  "npgo_aprtojun",
+  "oni_aprtojun",
+  "npi_aprtojun",
+  "mei_aprtojun"
 )
 
 # Fit one model per environmental variable
-annual_condition_models <- set_names(
-  map(annual_env_vars, function(v) {
+spring_condition_models <- set_names(
+  map(spring_env_vars, function(v) {
 
-    dat <- annual_joint %>%
+    dat <- seasonal_joint %>%
+      filter(window == "aprtojun") %>%
       select(year, year_z, mean_log_Kn, all_of(v)) %>%
       drop_na() %>%
       mutate(env_z = as.numeric(scale(.data[[v]])))
@@ -1416,38 +1467,61 @@ annual_condition_models <- set_names(
     )
 
   }),
-  annual_env_vars
+  spring_env_vars
 )
 
-# Summarize environmental slopes
-annual_condition_results <- imap_dfr(
-  annual_condition_models,
-  function(model, variable) {
+# Select environmental indices
+fall_env_vars <- c(
+  "pdo_maytojul",
+  "npgo_maytojul",
+  "oni_maytojul",
+  "npi_maytojul",
+  "mei_maytojul",
+  "pdo_augtooct",
+  "npgo_augtooct",
+  "oni_augtooct",
+  "npi_augtooct",
+  "mei_augtooct"
+)
 
-    x <- fixef(model)["env_z", ]
+# Fit one model per environmental variable
+fall_condition_models <- set_names(
+  map(fall_env_vars, function(v) {
 
-    tibble(
-      covariate = variable,
-      estimate = x["Estimate"],
-      lower = x["Q2.5"],
-      upper = x["Q97.5"]
+    dat <- seasonal_joint %>%
+      filter(window == "augtooct") %>%
+      select(year, year_z, mean_log_Kn, all_of(v)) %>%
+      drop_na() %>%
+      mutate(env_z = as.numeric(scale(.data[[v]])))
+
+    brm(
+      mean_log_Kn ~ env_z + s(year, k = 8),
+      # mean_log_Kn ~ env_z,
+      data = dat,
+      family = student(),
+      backend = "cmdstanr",
+      chains = 4,
+      iter = 3000,
+      warmup = 1500,
+      seed = 22
     )
-  }
+
+  }),
+  fall_env_vars
 )
 
-annual_condition_results
-
+# combine spring and fall results
+full_condition_models <- c(
+    spring_condition_models,
+    fall_condition_models)
 
 # -----------------------------
-# 6.4.1 Extract posterior slopes
+# 3.24 Summarize posterior effects of environmental covariates on seasonal body condition
 # -----------------------------
 
-library(posterior)
-library(ggdist)
-library(patchwork)
-
-annual_condition_draws <- purrr::imap_dfr(
-  annual_condition_models,
+# extract posterior draws for all environmental models
+full_condition_draws <- purrr::imap_dfr(
+  full_condition_models,
   function(model, variable) {
 
     draws <- posterior::as_draws_matrix(
@@ -1462,14 +1536,18 @@ annual_condition_draws <- purrr::imap_dfr(
   }
 ) %>%
   mutate(
-    index = toupper(
-      sub("_.*", "", covariate)
+    index = toupper(sub("_.*", "", covariate)),
+    window = sub(".*_", "", covariate),
+    season = case_when(
+      window %in% c("jantomar", "aprtojun") ~ "Spring",
+      window %in% c("maytojul", "augtooct") ~ "Fall",
+      TRUE ~ NA_character_
     )
   )
 
 # Summarize posterior effects
-annual_condition_posterior_summary <- annual_condition_draws %>%
-  group_by(covariate, index) %>%
+full_condition_posterior_summary <- full_condition_draws %>%
+  group_by(covariate, index, window, season) %>%
   summarise(
     median_beta = median(beta),
     lower_95 = quantile(beta, 0.025),
@@ -1485,28 +1563,55 @@ annual_condition_posterior_summary <- annual_condition_draws %>%
     .groups = "drop"
   )
 
-annual_condition_posterior_summary
+full_condition_posterior_summary
 
 # -----------------------------
-# 6.4.2 Posterior effect size plot
+# 3.25 Plot posterior effects of environmental covariates on seasonal body condition
 # -----------------------------
 
-annual_condition_draws <- annual_condition_draws %>%
+full_condition_draws <- full_condition_draws %>%
   mutate(
     pct_change = 100 * (exp(beta) - 1),
     index = factor(
       index,
       levels = c("PDO", "NPGO", "ONI", "NPI", "MEI")
+    ),
+    window = factor(
+      window,
+      levels = c("augtooct", "maytojul", "aprtojun", "jantomar")
+    ),
+    season = case_when(
+      window %in% c("jantomar", "aprtojun") ~ "Spring",
+      window %in% c("maytojul", "augtooct") ~ "Fall",
+      TRUE ~ NA_character_
+    ),
+    season = factor(
+      season,
+      levels = c("Spring", "Fall")
     )
   )
 
-p_annual_condition_posterior <- ggplot(
-  annual_condition_draws,
+p_full_condition_posterior <- ggplot(
+  full_condition_draws,
   aes(
     x = pct_change,
-    y = index
+    y = window,
+    fill = season
   )
-) +
+) + 
+  scale_y_discrete(
+    labels = c(
+      jantomar = "Jan to Mar",
+      aprtojun = "Apr to Jun",
+      maytojul = "May to Jul",
+      augtooct = "Aug to Oct"
+    )
+  ) +
+  facet_wrap(
+    ~ index,
+    ncol = 2,
+    scales = "free_x"
+  ) +
   stat_halfeye(
     .width = c(0.50, 0.80, 0.95),
     point_interval = median_qi,
@@ -1520,33 +1625,40 @@ p_annual_condition_posterior <- ggplot(
     linewidth = 0.6
   ) +
   labs(
-    title = "Environmental effects on annual body condition",
-    subtitle = paste(
-      "April-June environmental conditions;",
-      "adjusted for temporal trends"
-    ),
+    # title = "Environmental effects on Seasonal body condition",
+    # subtitle = "Adjusted for temporal trends",
     x = "Change in body condition (%) per 1-SD increase in index",
     y = NULL
   ) +
   theme_classic(base_size = 12)
 
-p_annual_condition_posterior
+p_full_condition_posterior
 
+# save plot
+ggsave(
+  filename = "figures/seasonal_condition_environment_effects.png",
+  plot = p_full_condition_posterior,
+  width = 10,
+  height = 8,
+  dpi = 300
+)
 
 
 # -----------------------------
-# 6.4.3 Bayesian environmental relationships
+# 3.26 Observed and fitted relationships between seasonal body condition and environmental covariates
 # -----------------------------
 
-get_annual_condition_relationship <- function(
+get_full_condition_relationship <- function(
     model,
     variable,
-    data = annual_joint,
+    data = seasonal_joint,
+    season = c("aprtojun", "augtooct"),
     ndraws = 1000
 ) {
 
   # Original data used for this predictor
   dat <- data %>%
+    filter(window %in% season) %>%
     select(
       year,
       mean_log_Kn,
@@ -1597,44 +1709,94 @@ get_annual_condition_relationship <- function(
   # Return both observed data and predictions
   list(
     observed = dat %>%
-      mutate(covariate = variable),
+      mutate(covariate = variable,
+             season = case_when(
+               season == "aprtojun" ~ "Spring",
+               season == "augtooct" ~ "Fall",
+               TRUE ~ NA_character_
+             ),
+             index = toupper(sub("_.*", "", variable)),
+             window = sub(".*_", "", variable)),
 
     predicted = pred_summary %>%
-      mutate(covariate = variable)
-  )
+      mutate(covariate = variable,
+             season = case_when(
+               season == "aprtojun" ~ "Spring",
+               season == "augtooct" ~ "Fall",
+               TRUE ~ NA_character_
+             ),
+             index = toupper(sub("_.*", "", variable)),
+             window = sub(".*_", "", variable)))
 }
 
 # Run for all environmental variables
-annual_condition_relationships <- imap(
-  annual_condition_models,
-  ~ get_annual_condition_relationship(
+spring_condition_relationships <- imap(
+  spring_condition_models,
+  ~ get_full_condition_relationship(
     model = .x,
-    variable = .y
+    variable = .y,
+    season = "aprtojun"
   )
 )
 
+length(spring_condition_relationships)
+str(spring_condition_relationships[[1]])
+
+
+fall_condition_relationships <- imap(
+  fall_condition_models,
+  ~ get_full_condition_relationship(
+    model = .x,
+    variable = .y,
+    season = "augtooct"
+  )
+)
+
+# combine spring and fall relationships
+full_condition_relationships <- c(
+  spring_condition_relationships,
+  fall_condition_relationships
+)
+
 # Combine observations
-annual_condition_observed <- map_dfr(
-  annual_condition_relationships,
+full_condition_observed <- map_dfr(
+  full_condition_relationships,
   "observed"
 )
 
 # Combine predictions
-annual_condition_predicted <- map_dfr(
-  annual_condition_relationships,
+full_condition_predicted <- map_dfr(
+  full_condition_relationships,
   "predicted"
 )
 
+# order the levels of the window factor for consistent plotting
+window_levels <- c("jantomar", "aprtojun", "maytojul", "augtooct")
+
+full_condition_observed <- full_condition_observed %>%
+  mutate(window = factor(window, levels = window_levels),
+         season = factor(season, levels = c("Spring", "Fall")))
+
+full_condition_predicted <- full_condition_predicted %>%
+  mutate(window = factor(window, levels = window_levels),
+         season = factor(season, levels = c("Spring", "Fall")))
 
 # -----------------------------
-# 6.4.4 Plot all environmental relationships
+# 3.27 Plot seasonal body condition relationships with environmental covariates
 # -----------------------------
 
-p_annual_condition_relationships <- ggplot() +
+p_full_condition_relationships <- ggplot() +
+
+  # horizonal line at zero
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.5
+  ) +
 
   # 95% credible interval
   geom_ribbon(
-    data = annual_condition_predicted,
+    data = full_condition_predicted,
     aes(
       x = env_z,
       ymin = lower_95,
@@ -1645,7 +1807,7 @@ p_annual_condition_relationships <- ggplot() +
 
   # Median fitted relationship
   geom_line(
-    data = annual_condition_predicted,
+    data = full_condition_predicted,
     aes(
       x = env_z,
       y = median
@@ -1655,108 +1817,115 @@ p_annual_condition_relationships <- ggplot() +
 
   # Observed annual values
   geom_point(
-    data = annual_condition_observed,
+    data = full_condition_observed,
     aes(
       x = env_z,
-      y = mean_log_Kn
+      y = mean_log_Kn,
+      colour = season
     ),
     alpha = 0.5,
     size = 1.8
   ) +
 
-  facet_wrap(
-    ~ covariate,
-    scales = "free_x",
-    ncol = 3,
+  facet_grid(
+    rows = vars(index),
+    cols = vars(window),
     labeller = labeller(
-      covariate = function(x) {
-        toupper(sub("_annual_same$", "", x))
-      }
-    )
+      window = c(
+        jantomar = "Jan to Mar",
+        aprtojun = "Apr to Jun",
+        maytojul = "May to Jul",
+        augtooct = "Aug to Oct"
+      )
+    ),
+    scales = "free",
+    # ncol = 3
   ) +
 
   labs(
-    title = "Annual body condition and environmental indices",
-    subtitle = paste(
-      "Bayesian fitted relationships adjusted",
-      "for nonlinear temporal trends"
-    ),
+    # title = "Seasonal body condition and environmental indices",
+    # subtitle = 
+    #   "Bayesian fitted relationships adjusted for nonlinear temporal trends",
     x = "Standardized environmental index",
-    y = "Annual mean log condition"
+    y = "Seasonal mean log condition"
   ) +
 
   theme_classic(base_size = 12)
 
-p_annual_condition_relationships
+p_full_condition_relationships
+
+# save plot
+ggsave(
+  filename = "figures/seasonal_condition_environment_relationships.png",
+  plot = p_full_condition_relationships,
+  width = 12,
+  height = 10,
+  dpi = 300
+)
 
 
 # -----------------------------
-# 6.4.5 Combine plots
+# 3.28 Forest plot of posterior effects of environmental covariates on seasonal body condition
 # -----------------------------
 
-p_annual_condition_combined <-
-  p_annual_condition_relationships /
-  p_annual_condition_posterior +
-  plot_layout(heights = c(2, 1))
-
-p_annual_condition_combined
-
-# ggsave(
-#   filename = "annual_condition_environment_effects.png",
-#   plot = p_annual_condition_combined,
-#   width = 14,
-#   height = 12,
-#   dpi = 300
-# )
-
-
-# -----------------------------
-# 6.4.6 Forest plots
-# -----------------------------
-
-p_annual_condition_forest <- annual_condition_results %>%
+p_full_condition_forest <- full_condition_posterior_summary %>%
   mutate(
-    index = toupper(
-      sub("_.*", "", covariate)
-    )
+    window = factor(window, levels = c("augtooct", "maytojul", "aprtojun", "jantomar")),
+    season = factor(season, levels = c("Spring", "Fall"))
   ) %>%
   ggplot(
     aes(
-      x = estimate,
-      y = reorder(index, estimate)
+      x = median_pct,
+      y = window,
+      colour = season
     )
   ) +
   geom_vline(
     xintercept = 0,
     linetype = "dashed"
   ) +
-  geom_errorbarh(
+  geom_errorbar(
     aes(
-      xmin = lower,
-      xmax = upper
+      xmin = lower_pct,
+      xmax = upper_pct,
+      colour = season
     ),
     height = 0.15
   ) +
   geom_point(
     size = 2.5
   ) +
+  facet_wrap(
+    ~ index,
+    ncol = 2,
+    scales = "free_x"
+  ) +
+  scale_y_discrete(
+    labels = c(
+      jantomar = "Jan to Mar",
+      aprtojun = "Apr to Jun",
+      maytojul = "May to Jul",
+      augtooct = "Aug to Oct"
+    )
+  ) +
   labs(
-    title = "Environmental effects on annual body condition",
-    subtitle = "Posterior mean and 95% credible intervals",
-    x = "Change in mean log condition per 1-SD increase",
+    # title = "Environmental effects on annual body condition",
+    # subtitle = "Posterior mean and 95% credible intervals",
+    x = "Change in body condition (%) per 1-SD increase in index",
     y = NULL
   ) +
   theme_classic()
 
-p_annual_condition_forest
+p_full_condition_forest
 
-
-p_annual_condition_combined <-
-  p_annual_condition_relationships /
-  p_annual_condition_forest +
-  plot_layout(heights = c(2, 1))
-
-p_annual_condition_combined
+# save plot
+ggsave(
+  filename = "figures/seasonal_condition_environment_forest.png",
+  plot = p_full_condition_forest,
+  width = 10,
+  height = 8,
+  dpi = 300
+)
 
 
 
@@ -2237,12 +2406,6 @@ condition_added_value <- imap_dfr(
 )
 
 condition_added_value
-
-
-
-
-
-
 
 
 
