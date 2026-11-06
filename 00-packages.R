@@ -1,6 +1,6 @@
 #####
 #
-# Hake length weight analysis and body condition 
+# Hake length weight analysis and body condition
 #
 #
 
@@ -25,3 +25,4 @@ library(tidyr)
 library(ggplot2)
 library(ggdist)
 library(tibble)
+library(sjplot)
