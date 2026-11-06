@@ -122,14 +122,13 @@ env_wide_rolling <- env_long %>%
 
 names(env_wide_rolling)
 
-# join with body condition data
-dat_env <- cond_monthly %>%
-  left_join(env_wide_rolling, by = c("year", "month"))
-
-
 # -----------------------------
 # 3.2 Correlations with environmental covariates
 # -----------------------------
+
+# join with body condition data
+dat_env <- cond_monthly %>%
+  left_join(env_wide_rolling, by = c("year", "month"))
 
 # Names of dat_env environmental data columns:
 env_vars <- c( 
