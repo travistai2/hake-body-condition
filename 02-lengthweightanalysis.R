@@ -153,9 +153,17 @@ m_lw2 <- glmmTMB(log_weight ~ log_length * Sex,
     optCtrl = list(iter.max = 1e4, eval.max = 1e4)
   )) 
 
+# modelling length weight with just sex as a fixed effect and month as a random effect
+m_lw3 <- glmmTMB(log_weight ~ log_length * Sex + (1 | Month), 
+  data = lwa,
+  family = gaussian(),
+  control = glmmTMBControl(
+    optCtrl = list(iter.max = 1e4, eval.max = 1e4)
+  )) 
+
 # compare models with AIC and anova
-AIC(m_lw1, m_lw2)
-anova(m_lw1, m_lw2)
+AIC(m_lw1, m_lw2, m_lw3)
+anova(m_lw1, m_lw2, m_lw3)
 
 # -----------------------------
 # 2.4 Predict expected weight and calculate Le Cren's condition
@@ -195,9 +203,10 @@ p_kn_hist
 p_kn_time <- lwa_cond %>%
   mutate(
     Year_num = as.numeric(as.character(Year)),
-    Month_num = as.numeric(as.character(Month))
+    Month_num = as.numeric(as.character(Month)),
+    Month_name = lubridate::month(Month_num, label = TRUE)
   ) %>%
-  group_by(Year_num, Month_num) %>%
+  group_by(Year_num, Month_name) %>%
   summarise(
     mean_Kn = mean(Kn, na.rm = TRUE),
     median_Kn = median(Kn, na.rm = TRUE),
@@ -208,7 +217,7 @@ p_kn_time <- lwa_cond %>%
   geom_hline(yintercept = 1, linetype = "dashed") +
   geom_point(aes(size = n), alpha = 0.5) +
   geom_smooth(se = TRUE) +
-  facet_wrap(~ Month_num, scales = "free_y") +
+  facet_wrap(~ Month_name, scales = "free_y") +
   labs(
     x = "Year",
     y = "Mean Kn",
@@ -217,6 +226,35 @@ p_kn_time <- lwa_cond %>%
   ) +
   theme_bw()
 p_kn_time
+
+# mean body condition over time by month linear line fit
+p_kn_time_linear <- lwa_cond %>%
+  mutate(
+    Year_num = as.numeric(as.character(Year)),
+    Month_num = as.numeric(as.character(Month)),
+    Month_name = lubridate::month(Month_num, label = TRUE)
+  ) %>%
+  group_by(Year_num, Month_name) %>%
+  summarise(
+    mean_Kn = mean(Kn, na.rm = TRUE),
+    median_Kn = median(Kn, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(Year_num, mean_Kn)) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  geom_point(aes(size = n), alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~ Month_name, scales = "free_y") +
+  labs(
+    x = "Year",
+    y = "Mean Kn",
+    size = "n",
+    title = "Mean body condition through time"
+  ) +
+  theme_bw()
+p_kn_time_linear
+
 
 # median body condition over time by month
 p_kn_time_med <- lwa_cond %>%
@@ -252,9 +290,13 @@ p_kn_hist
 p_kn_time
 # p_kn_time_med # median condition over time by month
 
+# save loess plot
 ggsave(filename = "figures/mean_body_condition_through_time_modelmonth.png", plot = p_kn_time, width = 8, height = 6, dpi = 300)
 
-rm(p_kn_hist, p_kn_time, p_kn_time_med)
+# save linear plot
+ggsave(filename = "figures/mean_body_condition_through_time_linear_modelmonth.png", plot = p_kn_time_linear, width = 8, height = 6, dpi = 300)
+
+rm(p_kn_hist, p_kn_time, p_kn_time_med, p_kn_time_linear)
 gc()
 
 ##### 2.4.2 Selected model excludes month
@@ -291,9 +333,10 @@ p_kn_hist
 p_kn_time <- lwa_cond %>%
   mutate(
     Year_num = as.numeric(as.character(Year)),
-    Month_num = as.numeric(as.character(Month))
+    Month_num = as.numeric(as.character(Month)),
+    Month_name = lubridate::month(Month_num, label = TRUE)
   ) %>%
-  group_by(Year_num, Month_num) %>%
+  group_by(Year_num, Month_name) %>%
   summarise(
     mean_Kn = mean(Kn, na.rm = TRUE),
     median_Kn = median(Kn, na.rm = TRUE),
@@ -304,7 +347,7 @@ p_kn_time <- lwa_cond %>%
   geom_hline(yintercept = 1, linetype = "dashed") +
   geom_point(aes(size = n), alpha = 0.5) +
   geom_smooth(se = TRUE) +
-  facet_wrap(~ Month_num, scales = "free_y") +
+  facet_wrap(~ Month_name, scales = "free_y") +
   labs(
     x = "Year",
     y = "Mean Kn",
@@ -313,6 +356,34 @@ p_kn_time <- lwa_cond %>%
   ) +
   theme_bw()
 p_kn_time
+
+# mean body condition over time by month linear line fit
+p_kn_time_linear <- lwa_cond %>%
+  mutate(
+    Year_num = as.numeric(as.character(Year)),
+    Month_num = as.numeric(as.character(Month)),
+    Month_name = lubridate::month(Month_num, label = TRUE)
+  ) %>%
+  group_by(Year_num, Month_name) %>%
+  summarise(
+    mean_Kn = mean(Kn, na.rm = TRUE),
+    median_Kn = median(Kn, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(Year_num, mean_Kn)) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  geom_point(aes(size = n), alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~ Month_name, scales = "free_y") +
+  labs(
+    x = "Year",
+    y = "Mean Kn",
+    size = "n",
+    title = "Mean body condition through time"
+  ) +
+  theme_bw()
+p_kn_time_linear
 
 # median body condition over time by month
 p_kn_time_med <- lwa_cond %>%
@@ -348,9 +419,13 @@ p_kn_hist
 p_kn_time
 # p_kn_time_med # median condition over time by month
 
+# save plot
 ggsave(filename = "figures/mean_body_condition_through_time_modelnomonth.png", plot = p_kn_time, width = 8, height = 6, dpi = 300)
 
-rm(p_kn_hist, p_kn_time, p_kn_time_med)
+# save linear plot
+ggsave(filename = "figures/mean_body_condition_through_time_linear_modelnomonth.png", plot = p_kn_time_linear, width = 8, height = 6, dpi = 300)
+
+rm(p_kn_hist, p_kn_time, p_kn_time_med, p_kn_time_linear)
 gc()
 
 # -----------------------------
