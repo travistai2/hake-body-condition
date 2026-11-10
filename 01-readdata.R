@@ -1,6 +1,6 @@
 #####
 #
-# Hake length weight analysis and body condition 
+# Hake length weight analysis and body condition
 #
 #
 
@@ -16,25 +16,33 @@
 # has data from 1965 to 2025
 us_dat <- read.csv("https://raw.githubusercontent.com/pacific-hake/hake-assessment/refs/heads/master/data-tables/us-weight-at-age.csv", header = TRUE)
 
+write.csv(us_dat, "data/github_data/us-weight-at-age.csv", row.names = FALSE)
+
 str(us_dat)
 head(us_dat)
 unique(us_dat$Source)
 unique(us_dat$Year)
+
 
 # length weight age data
 # Has numerous sources
 # has data from 1975 to 2021
 lwa_dat <- read.csv("https://raw.githubusercontent.com/pacific-hake/hake-assessment/refs/heads/master/data-tables/length-weight-age/LWAdata_1975to2021.csv", header = TRUE)
 
+write.csv(lwa_dat, "data/github_data/LWAdata_1975to2021.csv", row.names = FALSE)
+
 str(lwa_dat)
 head(lwa_dat)
 unique(lwa_dat$Source)
 unique(lwa_dat$Year)
 
+
 # acoustic survey weight at age
 # US and Can Acoustic sources
 # 1995 to 2025, every 2-3 years
 ac_dat <- read.csv("https://raw.githubusercontent.com/pacific-hake/hake-assessment/refs/heads/master/data-tables/survey-weight-at-age.csv", header = TRUE)
+
+write.csv(ac_dat, "data/github_data/survey-weight-at-age.csv", row.names = FALSE)
 
 str(ac_dat)
 head(ac_dat)
@@ -44,6 +52,7 @@ unique(ac_dat$Year)
 ## NEED TO FIX BELOW AND GET DATA TO REPO
 # Biomass at age
 #  Age is in columns, and the values represent the total biomass at each age
+# These data are from Andy from Rebecca
 # github directory
 # git_dir <- "C:/github/hakeanalysis/data/"
 
