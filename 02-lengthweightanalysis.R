@@ -19,29 +19,62 @@
 # 2.1 Clean data
 # -----------------------------
 
+# LWAdata 1975-2021
 # distribution of data by age
 hist(lwa_dat$Age_yrs, breaks = 20, main = "Distribution of data by age", xlab = "Age (yrs)")
 table(lwa_dat$Age_yrs)
-# combine older years into one category of 19 or older 
+# combine older years into one category of 19 or older
 
 # distribution of data by month
 hist(lwa_dat$Month, breaks = 20, main = "Distribution of data by month", xlab = "Month")
 table(lwa_dat$Month)
 
+# US data 1975-2025
+# distribution of data by age
+hist(us_dat$Age_yrs, breaks = 20, main = "Distribution of data by age", xlab = "Age (yrs)")
+table(us_dat$Age_yrs)
+# combine older years into one category of 19 or older
+
+# distribution of data by month
+hist(us_dat$Month, breaks = 20, main = "Distribution of data by month", xlab = "Month")
+table(us_dat$Month)
+
+#####
+# Choose which data to use
+
+# data_source <- "LWAdat"
+data_source <- "usdat"
+
+if (data_source == "LWAdat") {
+  selected_data <- lwa_dat
+} else if (data_source == "usdat") {
+  selected_data <- us_dat
+}
+
+table(selected_data$Source)
+table(selected_data$Year)
+table(selected_data$Month)
+table(selected_data$Sex)
+table(selected_data$Age_yrs)
+table(selected_data$Length_cm)
+#####
+
 # currently using the length weight data that seems to have the most data (a combination of the other datasets
-lwa <- lwa_dat %>%
+lwa <- selected_data %>%
+  select(Year, Month, Source, Sex, Age_yrs, Weight_kg, Length_cm) %>%
   filter(
-    !outlierL,
+    # !outlierL,
     !is.na(Weight_kg),
     !is.na(Length_cm),
+    !is.na(Month),
     Weight_kg > 0,
-    Length_cm > 0,
-    Sex %in% c("F","M")
+    Length_cm > 10,
+    Sex %in% c("F", "M")
   ) %>%
   mutate(
     Sex = factor(Sex),
     Age_yrs = ifelse(Age_yrs >= 19, 19, Age_yrs),
-    Age_yrs_numeric = Age_yrs, 
+    Age_yrs_numeric = Age_yrs,
     Age_yrs = factor(Age_yrs),
     Source = factor(Source),
     Year = factor(Year),
@@ -73,8 +106,8 @@ p_lw
 p_age <- ggplot(lwa, aes(Length_cm, Weight_kg, colour = Age_yrs)) +
   geom_point(alpha = 0.08, size = 0.5) +
   geom_smooth(method = "lm", formula = y ~ x, se = FALSE) +
-#   scale_x_log10() +
-#   scale_y_log10() +
+  #   scale_x_log10() +
+  #   scale_y_log10() +
   labs(
     x = "Length (cm)",
     y = "Weight (kg)",
@@ -105,7 +138,7 @@ p_month_facet <- ggplot(lwa, aes(Length_cm, Weight_kg)) +
   geom_smooth(method = "lm", formula = y ~ x, se = FALSE) +
   scale_x_log10() +
   scale_y_log10() +
-  facet_wrap(~ Month) +
+  facet_wrap(~Month) +
   labs(
     x = "Length (cm)",
     y = "Weight (kg)",
@@ -120,7 +153,7 @@ p_month_facet2 <- ggplot(lwa, aes(Length_cm, Weight_kg)) +
   geom_smooth(method = "lm", formula = y ~ x, se = FALSE) +
   scale_x_log10() +
   scale_y_log10() +
-  facet_wrap(~ Month) +
+  facet_wrap(~Month) +
   geom_smooth(data = lwa %>% select(-Month), aes(Length_cm, Weight_kg), inherit.aes = FALSE, method = "lm", formula = y ~ x, se = FALSE, colour = "black", linetype = "dashed") +
   labs(
     x = "Length (cm)",
@@ -138,28 +171,31 @@ p_month_facet2
 # log(W) = log(a) + b log(L)
 
 # modelling length weight with month and sex as fixed effects with interaction terms
-m_lw1 <- glmmTMB(log_weight ~ log_length * Month * Sex, 
+m_lw1 <- glmmTMB(log_weight ~ log_length * Month * Sex,
   data = lwa,
   family = gaussian(),
   control = glmmTMBControl(
     optCtrl = list(iter.max = 1e4, eval.max = 1e4)
-  ))
+  )
+)
 
 # modelling length weight with just sex as a fixed effect
-m_lw2 <- glmmTMB(log_weight ~ log_length * Sex, 
+m_lw2 <- glmmTMB(log_weight ~ log_length * Sex,
   data = lwa,
   family = gaussian(),
   control = glmmTMBControl(
     optCtrl = list(iter.max = 1e4, eval.max = 1e4)
-  )) 
+  )
+)
 
 # modelling length weight with just sex as a fixed effect and month as a random effect
-m_lw3 <- glmmTMB(log_weight ~ log_length * Sex + (1 | Month), 
+m_lw3 <- glmmTMB(log_weight ~ log_length * Sex + (1 | Month),
   data = lwa,
   family = gaussian(),
   control = glmmTMBControl(
     optCtrl = list(iter.max = 1e4, eval.max = 1e4)
-  )) 
+  )
+)
 
 # compare models with AIC and anova
 AIC(m_lw1, m_lw2, m_lw3)
@@ -171,7 +207,7 @@ anova(m_lw1, m_lw2, m_lw3)
 
 ##### 2.4.1 Selected model includes month
 # selected model - includes month
-m_lw_selected <- m_lw1 
+m_lw_selected <- m_lw1
 
 # Le Cren's relative condition factor:
 # Kn = observed weight / expected weight
@@ -217,7 +253,7 @@ p_kn_time <- lwa_cond %>%
   geom_hline(yintercept = 1, linetype = "dashed") +
   geom_point(aes(size = n), alpha = 0.5) +
   geom_smooth(se = TRUE) +
-  facet_wrap(~ Month_name, scales = "free_y") +
+  facet_wrap(~Month_name, scales = "free_y") +
   labs(
     x = "Year",
     y = "Mean Kn",
@@ -245,7 +281,7 @@ p_kn_time_linear <- lwa_cond %>%
   geom_hline(yintercept = 1, linetype = "dashed") +
   geom_point(aes(size = n), alpha = 0.5) +
   geom_smooth(method = "lm", se = TRUE) +
-  facet_wrap(~ Month_name, scales = "free_y") +
+  facet_wrap(~Month_name, scales = "free_y") +
   labs(
     x = "Year",
     y = "Mean Kn",
@@ -262,7 +298,7 @@ p_kn_time_med <- lwa_cond %>%
     Year_num = as.numeric(as.character(Year)),
     Month_num = as.numeric(as.character(Month))
   ) %>%
-  group_by(Year_num,Month_num) %>%
+  group_by(Year_num, Month_num) %>%
   summarise(
     mean_Kn = mean(Kn, na.rm = TRUE),
     median_Kn = median(Kn, na.rm = TRUE),
@@ -273,7 +309,7 @@ p_kn_time_med <- lwa_cond %>%
   geom_hline(yintercept = 1, linetype = "dashed") +
   geom_point(aes(size = n), alpha = 0.5) +
   geom_smooth(se = TRUE) +
-  facet_wrap(~ Month_num, scales = "free_y") +
+  facet_wrap(~Month_num, scales = "free_y") +
   labs(
     x = "Year",
     y = "Median Kn",
@@ -284,17 +320,17 @@ p_kn_time_med <- lwa_cond %>%
 p_kn_time_med
 
 # distribution historgram of body condition
-p_kn_hist
+# p_kn_hist
 
 # mean body condition over time by month
-p_kn_time
+# p_kn_time
 # p_kn_time_med # median condition over time by month
 
 # save loess plot
-ggsave(filename = "figures/mean_body_condition_through_time_modelmonth.png", plot = p_kn_time, width = 8, height = 6, dpi = 300)
+ggsave(filename = paste0("figures/", data_source, "/mean_body_condition_through_time_modelmonth.png"), plot = p_kn_time, width = 8, height = 6, dpi = 300)
 
 # save linear plot
-ggsave(filename = "figures/mean_body_condition_through_time_linear_modelmonth.png", plot = p_kn_time_linear, width = 8, height = 6, dpi = 300)
+ggsave(filename = paste0("figures/", data_source, "/mean_body_condition_through_time_linear_modelmonth.png"), plot = p_kn_time_linear, width = 8, height = 6, dpi = 300)
 
 rm(p_kn_hist, p_kn_time, p_kn_time_med, p_kn_time_linear)
 gc()
@@ -347,7 +383,7 @@ p_kn_time <- lwa_cond %>%
   geom_hline(yintercept = 1, linetype = "dashed") +
   geom_point(aes(size = n), alpha = 0.5) +
   geom_smooth(se = TRUE) +
-  facet_wrap(~ Month_name, scales = "free_y") +
+  facet_wrap(~Month_name, scales = "free_y") +
   labs(
     x = "Year",
     y = "Mean Kn",
@@ -375,7 +411,7 @@ p_kn_time_linear <- lwa_cond %>%
   geom_hline(yintercept = 1, linetype = "dashed") +
   geom_point(aes(size = n), alpha = 0.5) +
   geom_smooth(method = "lm", se = TRUE) +
-  facet_wrap(~ Month_name, scales = "free_y") +
+  facet_wrap(~Month_name, scales = "free_y") +
   labs(
     x = "Year",
     y = "Mean Kn",
@@ -391,7 +427,7 @@ p_kn_time_med <- lwa_cond %>%
     Year_num = as.numeric(as.character(Year)),
     Month_num = as.numeric(as.character(Month))
   ) %>%
-  group_by(Year_num,Month_num) %>%
+  group_by(Year_num, Month_num) %>%
   summarise(
     mean_Kn = mean(Kn, na.rm = TRUE),
     median_Kn = median(Kn, na.rm = TRUE),
@@ -402,7 +438,7 @@ p_kn_time_med <- lwa_cond %>%
   geom_hline(yintercept = 1, linetype = "dashed") +
   geom_point(aes(size = n), alpha = 0.5) +
   geom_smooth(se = TRUE) +
-  facet_wrap(~ Month_num, scales = "free_y") +
+  facet_wrap(~Month_num, scales = "free_y") +
   labs(
     x = "Year",
     y = "Median Kn",
@@ -413,17 +449,17 @@ p_kn_time_med <- lwa_cond %>%
 p_kn_time_med
 
 # distribution historgram of body condition
-p_kn_hist
+# p_kn_hist
 
 # mean body condition over time by month
-p_kn_time
+# p_kn_time
 # p_kn_time_med # median condition over time by month
 
 # save plot
-ggsave(filename = "figures/mean_body_condition_through_time_modelnomonth.png", plot = p_kn_time, width = 8, height = 6, dpi = 300)
+ggsave(filename = paste0("figures/", data_source, "/mean_body_condition_through_time_modelnomonth.png"), plot = p_kn_time, width = 8, height = 6, dpi = 300)
 
 # save linear plot
-ggsave(filename = "figures/mean_body_condition_through_time_linear_modelnomonth.png", plot = p_kn_time_linear, width = 8, height = 6, dpi = 300)
+ggsave(filename = paste0("figures/", data_source, "/mean_body_condition_through_time_linear_modelnomonth.png"), plot = p_kn_time_linear, width = 8, height = 6, dpi = 300)
 
 rm(p_kn_hist, p_kn_time, p_kn_time_med, p_kn_time_linear)
 gc()
@@ -433,7 +469,7 @@ gc()
 # -----------------------------
 
 # use selected model - m_lw1 = month included, m_lw2 = month excluded
-m_lw_selected <- m_lw1
+# m_lw_selected <- m_lw1
 m_lw_selected <- m_lw2
 
 # predict the expected weight and estimate condition
@@ -478,12 +514,18 @@ cond_annual <- lwa_cond %>%
 cond_monthly_plot <- cond_monthly %>%
   mutate(date = make_date(year, month, 1))
 
-p_cond_monthly <- ggplot(cond_monthly_plot,
-             aes(x = date, y = mean_Kn)) +
-  geom_hline(yintercept = 1, linetype = "dashed",
-             colour = "grey50") +
-  geom_point(alpha = 0.4, size = 1.5,
-             colour = "steelblue") +
+p_cond_monthly <- ggplot(
+  cond_monthly_plot,
+  aes(x = date, y = mean_Kn)
+) +
+  geom_hline(
+    yintercept = 1, linetype = "dashed",
+    colour = "grey50"
+  ) +
+  geom_point(
+    alpha = 0.4, size = 1.5,
+    colour = "steelblue"
+  ) +
   geom_smooth(
     method = "lm",
     span = 0.3,
@@ -492,8 +534,10 @@ p_cond_monthly <- ggplot(cond_monthly_plot,
     fill = "grey70",
     linewidth = 1
   ) +
-  scale_x_date(date_breaks = "5 years",
-               date_labels = "%Y") +
+  scale_x_date(
+    date_breaks = "5 years",
+    date_labels = "%Y"
+  ) +
   labs(
     x = "Year",
     y = "Mean relative condition (Kn)",
@@ -502,7 +546,7 @@ p_cond_monthly <- ggplot(cond_monthly_plot,
   theme_classic(base_size = 13)
 
 p_cond_monthly
-ggsave(filename = "figures/mean_monthly_body_condition_over_time.png", plot = p_cond_monthly, width = 8, height = 6, dpi = 300)
+ggsave(filename = paste0("figures/", data_source, "/mean_monthly_body_condition_over_time.png"), plot = p_cond_monthly, width = 8, height = 6, dpi = 300)
 
 # mean by year, across months
 p_cond_monthly2 <- cond_monthly %>%
@@ -514,8 +558,10 @@ p_cond_monthly2 <- cond_monthly %>%
     )
   ) %>%
   ggplot(aes(x = month, y = mean_Kn)) +
-  geom_hline(yintercept = 1, linetype = "dashed",
-             colour = "grey50") +
+  geom_hline(
+    yintercept = 1, linetype = "dashed",
+    colour = "grey50"
+  ) +
   geom_boxplot(
     fill = "steelblue",
     alpha = 0.5,
@@ -534,7 +580,7 @@ p_cond_monthly2 <- cond_monthly %>%
   theme_classic(base_size = 13)
 
 p_cond_monthly2
-ggsave(filename = "figures/seasonal_variation_body_condition.png", plot = p_cond_monthly2, width = 8, height = 6, dpi = 300)  
+ggsave(filename = paste0("figures/", data_source, "/seasonal_variation_body_condition.png"), plot = p_cond_monthly2, width = 8, height = 6, dpi = 300)
 
 # separating years and months
 p_cond_monthly3 <- cond_monthly %>%
@@ -544,15 +590,17 @@ p_cond_monthly3 <- cond_monthly %>%
     labels = month.abb
   )) %>%
   ggplot(aes(x = year, y = mean_Kn)) +
-  geom_hline(yintercept = 1, linetype = "dashed",
-             colour = "grey60") +
+  geom_hline(
+    yintercept = 1, linetype = "dashed",
+    colour = "grey60"
+  ) +
   geom_point(alpha = 0.5, size = 1) +
   geom_smooth(
     method = "loess",
     se = TRUE,
     colour = "steelblue"
   ) +
-  facet_wrap(~ month, scales = "free_y", ncol = 3) +
+  facet_wrap(~month, scales = "free_y", ncol = 3) +
   labs(
     x = "Year",
     y = "Mean relative condition (Kn)",
@@ -561,7 +609,7 @@ p_cond_monthly3 <- cond_monthly %>%
   theme_classic(base_size = 12)
 
 p_cond_monthly3
-ggsave(filename = "figures/temporal_trends_body_condition_by_month.png", plot = p_cond_monthly3, width = 8, height = 6, dpi = 300)
+ggsave(filename = paste0("figures/", data_source, "/temporal_trends_body_condition_by_month.png"), plot = p_cond_monthly3, width = 8, height = 6, dpi = 300)
 
 # plotting annual mean condition over time
 p_cond_annual <- ggplot(cond_annual, aes(x = year, y = mean_Kn)) +
@@ -576,7 +624,7 @@ p_cond_annual <- ggplot(cond_annual, aes(x = year, y = mean_Kn)) +
   ) +
   theme_classic(base_size = 13)
 p_cond_annual
-ggsave(filename = "figures/annual_mean_body_condition_over_time.png", plot = p_cond
+ggsave(filename = paste0("figures/", data_source, "/annual_mean_body_condition_over_time.png"), plot = p_cond_annual, width = 8, height = 6, dpi = 300)
 
 
 ##### -------------------------------------------------------------------- #####
@@ -697,8 +745,8 @@ get_prior(
 form_lw_bayes <- bf(
   log_weight ~
     log_length_c * Sex
-    # log_length_c * Sex * Month
-    # log_length_c * Sex + (1 + log_length_c | Month)
+  # log_length_c * Sex * Month
+  # log_length_c * Sex + (1 + log_length_c | Month)
 )
 
 m_lw_bayes <- brm(
@@ -706,20 +754,17 @@ m_lw_bayes <- brm(
   data = lwa_bayes,
   family = gaussian(),
   prior = priors_lw,
-
   backend = "cmdstanr",
   chains = 4,
   iter = 3000,
   warmup = 1500,
   seed = 2,
-
   control = list(
     adapt_delta = 0.95,
     max_treedepth = 12
   ),
-
   save_pars = save_pars(all = TRUE),
-  file = "model-outputs/m_lw_bayes_sexmonth",
+  file = paste0("model-outputs/", data_source, "_m_lw_bayes_sexmonth"),
   file_refit = "on_change"
 )
 
@@ -808,14 +853,13 @@ slope_summary
 
 # function to extract posterior distribution of monthly condition
 make_monthly_condition_draws <- function(
-    model,
-    data,
-    ndraws = 500,
-    chunk_size = 10000,
-    seed = 1837,
-    include_source_effect = TRUE
+  model,
+  data,
+  ndraws = 500,
+  chunk_size = 10000,
+  seed = 1837,
+  include_source_effect = TRUE
 ) {
-
   set.seed(seed)
 
   # Select posterior draws once and use the same draw IDs
@@ -864,7 +908,6 @@ make_monthly_condition_draws <- function(
   )
 
   for (chunk_number in seq_along(chunk_starts)) {
-
     row_start <- chunk_starts[chunk_number]
     row_end <- min(
       row_start + chunk_size - 1,
@@ -1021,13 +1064,10 @@ cond_monthly_summary <- cond_monthly_draws %>%
     median_log_Kn = median(mean_log_Kn),
     lower_log_Kn = quantile(mean_log_Kn, 0.025),
     upper_log_Kn = quantile(mean_log_Kn, 0.975),
-
     median_Kn = median(geometric_mean_Kn),
     lower_Kn = quantile(geometric_mean_Kn, 0.025),
     upper_Kn = quantile(geometric_mean_Kn, 0.975),
-
     probability_Kn_gt_1 = mean(geometric_mean_Kn > 1),
-
     .groups = "drop"
   ) %>%
   left_join(
@@ -1093,7 +1133,7 @@ ggplot(
   ) +
   geom_line() +
   facet_wrap(
-    ~ month,
+    ~month,
     ncol = 4
   ) +
   labs(
@@ -1253,7 +1293,7 @@ ggplot(
     se = FALSE
   ) +
   geom_hline(yintercept = 1, linetype = "dashed") +
-  facet_wrap(~ month) +
+  facet_wrap(~month) +
   labs(
     x = "Fork length (cm)",
     y = "Relative condition (Kn)"
@@ -1292,10 +1332,9 @@ ggplot(
     se = FALSE
   ) +
   geom_hline(yintercept = 1, linetype = "dashed") +
-  facet_wrap(~ Source) +
+  facet_wrap(~Source) +
   labs(
     x = "Fork length (cm)",
     y = "Relative condition (Kn)"
   ) +
   theme_classic()
-
