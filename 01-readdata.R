@@ -49,26 +49,135 @@ head(ac_dat)
 unique(ac_dat$Source)
 unique(ac_dat$Year)
 
-## NEED TO FIX BELOW AND GET DATA TO REPO
 # Biomass at age
 #  Age is in columns, and the values represent the total biomass at each age
 # These data are from Andy from Rebecca
 # github directory
-# git_dir <- "C:/github/hakeanalysis/data/"
 
 # # canada survey data
-# can.dat <- read.csv(paste0(git_dir, "Survey_Biomass_at_age_Canada.csv"), header = TRUE)
+# can.dat <- read.csv(paste0("data/survey_biomass_age_proportions/", "Survey_Biomass_at_age_Canada.csv"), header = TRUE)
 
 # # california survey data
-# cal.dat <- read.csv(paste0(git_dir, "Survey_Biomass_at_age_California.csv"), header = TRUE)
+# cal.dat <- read.csv(paste0("data/survey_biomass_age_proportions/", "Survey_Biomass_at_age_California.csv"), header = TRUE)
 
 # # oregon survey data
-# ore.dat <- read.csv(paste0(git_dir, "Survey_Biomass_at_age_Oregon.csv"), header = TRUE)
+# ore.dat <- read.csv(paste0("data/survey_biomass_age_proportions/", "Survey_Biomass_at_age_Oregon.csv"), header = TRUE)
 
 # # total survey data
-# tot.dat <- read.csv(paste0(git_dir, "Survey_Biomass_at_Age_Total.csv"), header = TRUE)
+# tot.dat <- read.csv(paste0("data/survey_biomass_age_proportions/", "Survey_Biomass_at_Age_Total.csv"), header = TRUE)
 
 # str(can.dat)
 # str(cal.dat)
 # str(ore.dat)
 # str(tot.dat)
+
+#####
+# Checkout other data on github data/ folder
+
+# # weight age sample sizes
+# data_url <- paste0(
+#     "https://github.com/pacific-hake/hake-assessment/blob/master/data/weight_age_sample_sizes_df.rda",
+#     "?raw=true"
+# )
+# download.file(data_url, destfile = "data/github_data/weight_age_sample_sizes_df.rda")
+# load("data/github_data/weight_age_sample_sizes_df.rda")
+# weight_age_sample_sizes_df
+
+# # weight at age df
+# data_url <- paste0(
+#     "https://github.com/pacific-hake/hake-assessment/blob/master/data/weight_at_age_df.rda",
+#     "?raw=true"
+# )
+# download.file(data_url, destfile = "data/github_data/weight_at_age_df.rda")
+# load("data/github_data/weight_at_age_df.rda")
+# weight_at_age_df
+# head(weight_at_age_df)
+
+# # weight at age fn
+# data_url <- paste0(
+#     "https://github.com/pacific-hake/hake-assessment/blob/master/data/weight_at_age_fn.rda",
+#     "?raw=true"
+# )
+# download.file(data_url, destfile = "data/github_data/weight_at_age_fn.rda")
+# load("data/github_data/weight_at_age_fn.rda")
+# head(weight_at_age_fn)
+
+# # can ft bottom depth df
+# data_url <- paste0(
+#     "https://github.com/pacific-hake/hake-assessment/blob/master/data/can_ft_bottom_depth_df.rda",
+#     "?raw=true"
+# )
+# download.file(data_url, destfile = "data/github_data/can_ft_bottom_depth_df.rda")
+# load("data/github_data/can_ft_bottom_depth_df.rda")
+# head(can_ft_bottom_depth_df)
+
+# # can_ft_catch_by_month_df
+# data_url <- paste0(
+#     "https://github.com/pacific-hake/hake-assessment/blob/master/data/can_ft_catch_by_month_df.rda",
+#     "?raw=true"
+# )
+# download.file(data_url, destfile = "data/github_data/can_ft_catch_by_month_df.rda")
+# load("data/github_data/can_ft_catch_by_month_df.rda")
+# head(can_ft_catch_by_month_df)
+
+
+# # can_waa_fn
+# data_url <- paste0(
+#     "https://github.com/pacific-hake/hake-assessment/blob/master/data/can_waa_fn.rda",
+#     "?raw=true"
+# )
+# download.file(data_url, destfile = "data/github_data/can_waa_fn.rda")
+# load("data/github_data/can_waa_fn.rda")
+# head(can_waa_fn)
+
+# # recruit_dev_start_yr
+# data_url <- paste0(
+#     "https://github.com/pacific-hake/hake-assessment/blob/master/data/recruit_dev_start_yr.rda",
+#     "?raw=true"
+# )
+# download.file(data_url, destfile = "data/github_data/recruit_dev_start_yr.rda")
+# load("data/github_data/recruit_dev_start_yr.rda")
+# head(recruit_dev_start_yr)
+
+# # survey_by_country_df
+# data_url <- paste0(
+#     "https://github.com/pacific-hake/hake-assessment/blob/master/data/survey_by_country_df.rda",
+#     "?raw=true"
+# )
+# download.file(data_url, destfile = "data/github_data/survey_by_country_df.rda")
+# load("data/github_data/survey_by_country_df.rda")
+# head(survey_by_country_df)
+
+# # us_ms_age_df
+# data_url <- paste0(
+#     "https://github.com/pacific-hake/hake-assessment/blob/master/data/us_ms_age_df.rda",
+#     "?raw=true"
+# )
+# download.file(data_url, destfile = "data/github_data/us_ms_age_df.rda")
+# load("data/github_data/us_ms_age_df.rda")
+# head(us_ms_age_df)
+
+# # us_ss_age_df
+# data_url <- paste0(
+#     "https://github.com/pacific-hake/hake-assessment/blob/master/data/us_ss_age_df.rda",
+#     "?raw=true"
+# )
+# download.file(data_url, destfile = "data/github_data/us_ss_age_df.rda")
+# load("data/github_data/us_ss_age_df.rda")
+# head(us_ss_age_df)
+
+# # us_ti_ct_by_month_df
+# data_url <- paste0(
+#     "https://github.com/pacific-hake/hake-assessment/blob/master/data/us_ti_ct_by_month_df.rda",
+#     "?raw=true"
+# )
+# download.file(data_url, destfile = "data/github_data/us_ti_ct_by_month_df.rda")
+# load("data/github_data/us_ti_ct_by_month_df.rda")
+# head(us_ti_ct_by_month_df)
+
+# # none of these appear to be what I want - they don't have length data
+# # remove objects from line 75
+# rm(
+#     weight_at_age_fn, can_ft_bottom_depth_df, can_ft_catch_by_month_df, can_waa_fn, recruit_dev_start_yr, survey_by_country_df, us_ms_age_df, us_ss_age_df, us_ti_ct_by_month_df, can_waa_fn,
+#     weight_at_age_df, weight_age_sample_sizes_df
+# )
