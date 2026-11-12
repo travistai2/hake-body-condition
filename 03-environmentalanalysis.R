@@ -14,6 +14,9 @@
 
 # Using posteriors of body condition for bayesian analysis with env covariates
 
+# Need to run 02-lengthweightanalysis.R first to generate body condition posteriors
+#  Need data object `cond_monthly` and `lwa_cond` from 02-lengthweightanalysis.R
+
 # -----------------------------
 # 3.1 Add environmental covariates from pacea
 # -----------------------------
@@ -24,7 +27,7 @@ pacea_indices
 # function for formatting covariates from pacea
 format_covariate_month <- function(dat, value.col, name) {
   dat %>%
-    as_tibble()  %>%
+    as_tibble() %>%
     group_by(year, month) %>%
     summarize(value = mean(.data[[value.col]])) %>%
     mutate(covariate = name)
@@ -34,8 +37,8 @@ format_covariate_month <- function(dat, value.col, name) {
 env_pdo <- format_covariate_month(pdo, "anomaly", "pdo")
 env_npgo <- format_covariate_month(npgo, "anomaly", "npgo")
 env_oni <- format_covariate_month(oni, "anomaly", "oni")
-env_npi <- format_covariate_month(npi_monthly , "value", "npi")
-env_mei <- format_covariate_month(mei , "anomaly", "mei")
+env_npi <- format_covariate_month(npi_monthly, "value", "npi")
+env_mei <- format_covariate_month(mei, "anomaly", "mei")
 
 # combine variables
 env_long <- bind_rows(env_pdo, env_npgo, env_oni, env_npi, env_mei)
@@ -62,16 +65,21 @@ lag1_vars <- c(
 
 # formatting data and making 3 and 6 month rolling averages
 env_wide_rolling <- env_long %>%
-  mutate(covariate = paste(covariate, "lagprev1month", sep = "_"),
-        #  month_orig = month,  # remove this for now as it confuses things
-         month = month + lag_months) %>%
-  mutate(year = case_when(month > 12 ~ year + 1,
-                          .default = year),
-         month = case_when(month > 12 ~ (month - 12),
-                           .default = month)) %>%
+  mutate(
+    covariate = paste(covariate, "lagprev1month", sep = "_"),
+    #  month_orig = month,  # remove this for now as it confuses things
+    month = month + lag_months
+  ) %>%
+  mutate(
+    year = case_when(month > 12 ~ year + 1,
+      .default = year
+    ),
+    month = case_when(month > 12 ~ (month - 12),
+      .default = month
+    )
+  ) %>%
   pivot_wider(names_from = covariate, values_from = value) %>%
   ungroup() %>%
-
   # Create a proper monthly date
   mutate(
     month_date = make_date(
@@ -81,7 +89,6 @@ env_wide_rolling <- env_long %>%
     )
   ) %>%
   arrange(month_date) %>%
-
   # Insert missing calendar months, if any
   complete(
     month_date = seq(
@@ -95,7 +102,6 @@ env_wide_rolling <- env_long %>%
     month = lubridate::month(month_date)
   ) %>%
   arrange(month_date) %>%
-
   # Calculate rolling means from the lag-1 variables
   mutate(
     across(
@@ -131,7 +137,7 @@ dat_env <- cond_monthly %>%
   left_join(env_wide_rolling, by = c("year", "month"))
 
 # Names of dat_env environmental data columns:
-env_vars <- c( 
+env_vars <- c(
   "pdo_lagprev1month",
   "npgo_lagprev1month",
   "oni_lagprev1month",
@@ -180,7 +186,7 @@ ggpairs(dat_env %>% select(mean_Kn, contains("lagprev1to3months"))) +
 
 # save figure
 ggsave(
-  "figures/condition_env_correlations.png",
+  paste0("figures/", data_source, "/condition_env_correlations.png"),
   width = 8,
   height = 6
 )
@@ -192,7 +198,7 @@ ggsave(
 
 # filter only canada or us data
 filter_index <- unique(lwa_cond$Source)
-filter_index_can <- c("CAN_acoustic", "CAN_shoreside", "CAN_JV","CAN_polish", "Acoustic Canada")
+filter_index_can <- c("CAN_acoustic", "CAN_shoreside", "CAN_JV", "CAN_polish", "Acoustic Canada")
 filter_index_us <- c("US_foreign", "US_JV", "US_shore", "US_acoustic", "US_atsea", "Acoustic U.S.")
 
 # selected data
@@ -200,20 +206,17 @@ selected <- "all"
 # selected <- "us"
 # selected <- "can"
 
-if(selected == "all"){
+if (selected == "all") {
   lwa_env <- lwa_cond %>%
     filter(Source %in% filter_index)
-
 } else {
-  if(selected == "us"){
+  if (selected == "us") {
     lwa_env <- lwa_cond %>%
       filter(Source %in% filter_index_us)
-
   } else {
-    if(selected == "can"){
+    if (selected == "can") {
       lwa_env <- lwa_cond %>%
         filter(Source %in% filter_index_can)
-
     } else {
       rm(lwa_env)
     }
@@ -303,7 +306,7 @@ plot_env_relationship <- function(v) {
       x = v,
       y = "Monthly mean Kn",
       size = "n fish"
-    #   title = paste("Body condition vs", v, "-", selected, "data")
+      #   title = paste("Body condition vs", v, "-", selected, "data")
     ) +
     theme_bw()
 }
@@ -316,7 +319,7 @@ wrap_plots(env_plots)
 
 # save figure
 ggsave(
-  "figures/glmm_condition_env_relationships.png",
+  paste0("figures/", data_source, "/glmm_condition_env_relationships.png"),
   width = 12,
   height = 8
 )
@@ -371,14 +374,10 @@ ggplot() +
 
 # save figure
 ggsave(
-  "figures/glmm_length_weight_model_predictions.png",
+  paste0("figures/", data_source, "/glmm_length_weight_model_predictions.png"),
   width = 8,
   height = 6
 )
-
-
-
-
 
 
 ##### -------------------------------------------------------------------- #####
@@ -388,7 +387,7 @@ ggsave(
 ##### -------------------------------------------------------------------- #####
 
 # Bayesian analysis of hake body condition with environmental covariates
-# Using posteriors of body condition for bayesian analysis with env covariates     
+# Using posteriors of body condition for bayesian analysis with env covariates
 
 # -----------------------------
 # 3.11 Join monthly environmental covariates
@@ -400,17 +399,14 @@ selected <- "all"
 # selected <- "can"
 
 # condition monthly draws from previous section 02-lengthweightanalysis.R
-if(selected == "all"){
+if (selected == "all") {
   cond_monthly_draws_used <- cond_monthly_draws
-
 } else {
-  if(selected == "us"){
+  if (selected == "us") {
     cond_monthly_draws_used <- cond_monthly_draws_us
-
   } else {
-    if(selected == "can"){
+    if (selected == "can") {
       cond_monthly_draws_used <- cond_monthly_draws_can
-
     } else {
       rm(cond_monthly_draws_used)
     }
@@ -461,7 +457,6 @@ env_scaling <- env_wide_rolling %>%
 
 # function to scale environmental variables
 scale_env_variable <- function(x, variable, scaling_table) {
-
   variable_mean <- scaling_table[[paste0(variable, "_mean")]]
 
   variable_sd <- scaling_table[[paste0(variable, "_sd")]]
@@ -506,7 +501,6 @@ selected_condition_draws <- available_condition_draws %>%
 # create list of 50 dataset (from posterior draws) that are matched to environmental variables
 environment_data_list <- selected_condition_draws$.draw_index %>%
   map(function(draw_number) {
-
     cond_env_draws %>%
       filter(.draw_index == draw_number) %>%
       mutate(
@@ -515,7 +509,6 @@ environment_data_list <- selected_condition_draws$.draw_index %>%
           levels = 1:12,
           labels = month.abb
         ),
-
         year_f = factor(year),
 
         # Consecutive monthly time index
@@ -545,12 +538,11 @@ length(environment_data_list)
 
 # function for running all models with each environmental variable
 fit_environment_model <- function(
-    variable,
-    data_list,
-    model_file = NULL,
-    seed = 22
+  variable,
+  data_list,
+  model_file = NULL,
+  seed = 22
 ) {
-
   variable_z <- paste0(variable, "_z")
 
   formula_text <- paste0(
@@ -575,20 +567,16 @@ fit_environment_model <- function(
     ),
     family = gaussian(),
     prior = priors_env,
-
     backend = "cmdstanr",
     chains = 4,
     iter = 1000,
     warmup = 500,
     seed = seed,
-
     control = list(
       adapt_delta = 0.95,
       max_treedepth = 12
     ),
-
     combine = TRUE,
-
     file = model_file,
     file_refit = "always"
     # file_refit = if (is.null(model_file)) NULL else "on_change"
@@ -624,91 +612,77 @@ env_models_bayes <- list(
   pdo_lagprev1month = fit_environment_model(
     variable = "pdo_lagprev1month",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_pdo_lagprev1month_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_pdo_lagprev1month_", selected)
   ),
-
   npgo_lagprev1month = fit_environment_model(
     variable = "npgo_lagprev1month",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_npgo_lagprev1month_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_npgo_lagprev1month_", selected)
   ),
-
   oni_lagprev1month = fit_environment_model(
     variable = "oni_lagprev1month",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_oni_lagprev1month_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_oni_lagprev1month_", selected)
   ),
-
   npi_lagprev1month = fit_environment_model(
     variable = "npi_lagprev1month",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_npi_lagprev1month_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_npi_lagprev1month_", selected)
   ),
-  
   mei_lagprev1month = fit_environment_model(
     variable = "mei_lagprev1month",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_mei_lagprev1month_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_mei_lagprev1month_", selected)
   ),
-
   pdo_lagprev1to3months = fit_environment_model(
     variable = "pdo_lagprev1to3months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_pdo_lagprev1to3months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_pdo_lagprev1to3months_", selected)
   ),
-
   npgo_lagprev1to3months = fit_environment_model(
     variable = "npgo_lagprev1to3months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_npgo_lagprev1to3months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_npgo_lagprev1to3months_", selected)
   ),
-
   oni_lagprev1to3months = fit_environment_model(
     variable = "oni_lagprev1to3months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_oni_lagprev1to3months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_oni_lagprev1to3months_", selected)
   ),
-
   npi_lagprev1to3months = fit_environment_model(
     variable = "npi_lagprev1to3months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_npi_lagprev1to3months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_npi_lagprev1to3months_", selected)
   ),
-
   mei_lagprev1to3months = fit_environment_model(
     variable = "mei_lagprev1to3months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_mei_lagprev1to3months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_mei_lagprev1to3months_", selected)
   ),
-
   pdo_lagprev1to6months = fit_environment_model(
     variable = "pdo_lagprev1to6months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_pdo_lagprev1to6months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_pdo_lagprev1to6months_", selected)
   ),
-
   npgo_lagprev1to6months = fit_environment_model(
     variable = "npgo_lagprev1to6months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_npgo_lagprev1to6months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_npgo_lagprev1to6months_", selected)
   ),
-
   oni_lagprev1to6months = fit_environment_model(
     variable = "oni_lagprev1to6months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_oni_lagprev1to6months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_oni_lagprev1to6months_", selected)
   ),
-
   npi_lagprev1to6months = fit_environment_model(
     variable = "npi_lagprev1to6months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_npi_lagprev1to6months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_npi_lagprev1to6months_", selected)
   ),
-
   mei_lagprev1to6months = fit_environment_model(
     variable = "mei_lagprev1to6months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/m_env_mei_lagprev1to6months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_mei_lagprev1to6months_", selected)
   )
 )
 
@@ -746,12 +720,11 @@ env_models_bayes <- list(
 #   }
 # )
 
-# faster try below 
+# faster try below
 # summarize environmental effects from bayesian models
 env_effect_summary <- imap_dfr(
   env_models_bayes,
   function(model, variable) {
-
     coefficient_name <- paste0(
       "b_",
       variable,
@@ -767,15 +740,12 @@ env_effect_summary <- imap_dfr(
 
     tibble(
       covariate = variable,
-
       median_beta = median(beta),
       lower_beta = quantile(beta, 0.025),
       upper_beta = quantile(beta, 0.975),
-
       median_Kn_ratio = median(beta_exp),
       lower_Kn_ratio = quantile(beta_exp, 0.025),
       upper_Kn_ratio = quantile(beta_exp, 0.975),
-
       probability_positive = mean(beta > 0),
       probability_negative = mean(beta < 0)
     )
@@ -797,22 +767,22 @@ dir.create(
 
 saveRDS(
   cond_monthly_draws,
-  file = paste0("model-outputs/posterior-outputs/condition_monthly_posterior_draws_", selected, ".rds")
+  file = paste0("model-outputs/posterior-outputs/", data_source, "_condition_monthly_posterior_draws_", selected, ".rds")
 )
 
 saveRDS(
   cond_monthly_summary,
-  file = paste0("model-outputs/posterior-outputs/condition_monthly_posterior_summary_", selected, ".rds")
+  file = paste0("model-outputs/posterior-outputs/", data_source, "_condition_monthly_posterior_summary_", selected, ".rds")
 )
 
 saveRDS(
   env_scaling,
-  file = paste0("model-outputs/posterior-outputs/environment_covariate_scaling_", selected, ".rds")
+  file = paste0("model-outputs/posterior-outputs/", data_source, "_environment_covariate_scaling_", selected, ".rds")
 )
 
 write.csv(
   cond_monthly_summary,
-  file = paste0("model-outputs/posterior-outputs/condition_monthly_posterior_summary_", selected, ".csv"),
+  file = paste0("model-outputs/posterior-outputs/", data_source, "_condition_monthly_posterior_summary_", selected, ".csv"),
   row.names = FALSE
 )
 
@@ -823,7 +793,6 @@ write.csv(
 
 # plot individual env variable posterior
 plot_env_posterior <- function(model, variable) {
-
   coefficient_name <- paste0(
     "b_",
     variable,
@@ -852,7 +821,8 @@ plot_env_posterior <- function(model, variable) {
     ggplot2::aes(
       x = beta,
       y = variable_label
-    ) +
+    )
+  ) +
     ggdist::stat_halfeye(
       .width = c(0.50, 0.80, 0.95),
       point_interval = ggdist::median_qi,
@@ -890,7 +860,6 @@ plot_env_posterior(
 
 # function to extract posterior draws for a given environmental model and variable
 extract_env_posterior <- function(model, variable) {
-
   coefficient_name <- paste0(
     "b_",
     variable,
@@ -937,21 +906,19 @@ env_posterior_draws <- imap_dfr(
 env_posterior_draws <- env_posterior_draws %>%
   mutate(
     index = case_when(
-      grepl("^pdo", model)  ~ "PDO",
+      grepl("^pdo", model) ~ "PDO",
       grepl("^npgo", model) ~ "NPGO",
-      grepl("^oni", model)  ~ "ONI",
-      grepl("^npi", model)  ~ "NPI",
-      grepl("^mei", model)  ~ "MEI",
-      TRUE                  ~ model
+      grepl("^oni", model) ~ "ONI",
+      grepl("^npi", model) ~ "NPI",
+      grepl("^mei", model) ~ "MEI",
+      TRUE ~ model
     ),
-
     exposure_window = case_when(
       grepl("_lagprev1month", model) ~ "Previous month",
       grepl("_lagprev1to3", model) ~ "Previous 3 months",
       grepl("_lagprev1to6", model) ~ "Previous 6 months",
-      TRUE                    ~ "Other"
+      TRUE ~ "Other"
     ),
-
     exposure_window = factor(
       exposure_window,
       levels = c(
@@ -960,7 +927,6 @@ env_posterior_draws <- env_posterior_draws %>%
         "Previous 6 months"
       )
     ),
-
     index = factor(
       index,
       levels = c("PDO", "NPGO", "ONI", "NPI", "MEI")
@@ -1009,6 +975,16 @@ env_posterior_combined_plot <- ggplot(
 
 env_posterior_combined_plot
 
+# save plot
+ggsave(
+  filename = paste0("figures/", data_source, "/env_posterior_combined_plot.png"),
+  plot = env_posterior_combined_plot,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
+
 #####
 #  plot percent change in body condition
 env_posterior_draws <- env_posterior_draws %>%
@@ -1053,17 +1029,24 @@ env_percent_change_plot <- ggplot(
 
 env_percent_change_plot
 
+# save figure
+ggsave(
+  filename = paste0("figures/", data_source, "/env_percent_change_plot.png"),
+  plot = env_percent_change_plot,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 
 # funtion to plot linear relationship
 plot_env_linear <- function(
-    variable,
-    data = dat_env,
-    posterior_draws = env_posterior_draws,
-    response = "mean_log_Kn",
-    n_grid = 100,
-    scaling_table = env_scaling
+  variable,
+  data = dat_env,
+  posterior_draws = env_posterior_draws,
+  response = "mean_log_Kn",
+  n_grid = 100,
+  scaling_table = env_scaling
 ) {
-
   # Extract existing posterior slopes
   variable_draws <- posterior_draws %>%
     filter(model == variable)
@@ -1132,7 +1115,6 @@ plot_env_linear <- function(
   prediction_summary <- lapply(
     x_grid,
     function(x) {
-
       predicted_y <- mean_y +
         beta_original * (x - mean_x)
 
@@ -1172,7 +1154,7 @@ plot_env_linear <- function(
       linewidth = 0.9
     ) +
     labs(
-    #   title = index_label,
+      #   title = index_label,
       subtitle = window_subtitle,
       x = index_label,
       y = "Mean log body condition"
@@ -1201,6 +1183,15 @@ env_linear_combined <- wrap_plots(
 # these are the plots of the linear relationships between each environmental covariate and body condition, with posterior uncertainty shown as ribbons around the median predicted line. The points represent the observed data.
 # environmental data are on original scale, and the predicted lines are based on the posterior draws of the slopes from the Bayesian models, anchored at the mean of the observed data.
 env_linear_combined
+
+# save figure
+ggsave(
+  filename = paste0("figures/", data_source, "/env_linear_combined_plot.png"),
+  plot = env_linear_combined,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 
 
 ##### -------------------------------------------------------------------- #####
@@ -1239,15 +1230,18 @@ summarise_environment_window <- function(data, months, label) {
 
 # summarise environmental covariates for each seasonal window
 summarise_environment <- full_join(
-  summarise_environment_window(env_wide_rolling, 1:3, "jantomar"),  
+  summarise_environment_window(env_wide_rolling, 1:3, "jantomar"),
   summarise_environment_window(env_wide_rolling, 4:6, "aprtojun"),
-  by = "year") %>% 
+  by = "year"
+) %>%
   full_join(
     summarise_environment_window(env_wide_rolling, 5:7, "maytojul"),
-    by = "year") %>%
+    by = "year"
+  ) %>%
   full_join(
     summarise_environment_window(env_wide_rolling, 8:10, "augtooct"),
-    by = "year")
+    by = "year"
+  )
 
 # summarise seasonal body condition for spring (april-june) and late summer/early fall (august-october) periods
 summarise_condition <- cond_monthly %>%
@@ -1265,7 +1259,7 @@ summarise_condition <- cond_monthly %>%
     mean_log_Kn = mean(mean_log_Kn, na.rm = TRUE),
     n_fish = sum(n_fish),
     .groups = "drop"
-  ) %>% 
+  ) %>%
   mutate(window = "aprtojun") %>%
   bind_rows(
     cond_monthly %>%
@@ -1276,7 +1270,7 @@ summarise_condition <- cond_monthly %>%
         n_fish = sum(n_fish),
         .groups = "drop"
       ) %>%
-    mutate(window = "augtooct")
+      mutate(window = "augtooct")
   )
 
 # join seasonal condition and environmental covariates
@@ -1286,7 +1280,7 @@ seasonal_joint <- summarise_condition %>%
     by = c("year")
   ) %>%
   arrange(year) %>%
-  mutate(   
+  mutate(
     year_z = as.numeric(scale(year)),
     condition_z = as.numeric(scale(mean_log_Kn))
   )
@@ -1305,8 +1299,9 @@ seasonal_joint_long <- seasonal_joint %>%
   pivot_longer(
     cols = c(-year, -mean_log_Kn),
     names_to = c("index", "window"),
-    names_sep = "_",      
-    values_to = "value")  %>%
+    names_sep = "_",
+    values_to = "value"
+  ) %>%
   mutate(
     window = recode(
       window,
@@ -1343,6 +1338,15 @@ ggplot(seasonal_joint_long, aes(year, value_z, colour = index)) +
   ) +
   theme_classic()
 
+# save figure
+ggsave(
+  filename = paste0("figures/", data_source, "/seasonal_environmental_covariates_plot.png"),
+  plot = last_plot(),
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
 # plot spring body condition and environmental covariates
 spring_join_long <- seasonal_joint %>%
   filter(window == "aprtojun") %>%
@@ -1350,8 +1354,9 @@ spring_join_long <- seasonal_joint %>%
   pivot_longer(
     cols = c(-year, -mean_log_Kn),
     names_to = c("index", "window"),
-    names_sep = "_",      
-    values_to = "value") %>%
+    names_sep = "_",
+    values_to = "value"
+  ) %>%
   mutate(
     window = recode(
       window,
@@ -1384,6 +1389,14 @@ ggplot(spring_join_long, aes(value_z, mean_log_Kn, colour = index)) +
   ) +
   theme_classic()
 
+# save figure
+ggsave(
+  filename = paste0("figures/", data_source, "/spring_body_condition_plot.png"),
+  plot = last_plot(),
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 
 # plot fall body condition and environmental covariates over time
 fall_join_long <- seasonal_joint %>%
@@ -1392,8 +1405,9 @@ fall_join_long <- seasonal_joint %>%
   pivot_longer(
     cols = c(-year, -mean_log_Kn),
     names_to = c("index", "window"),
-    names_sep = "_",      
-    values_to = "value") %>%
+    names_sep = "_",
+    values_to = "value"
+  ) %>%
   mutate(
     window = recode(
       window,
@@ -1426,6 +1440,15 @@ ggplot(fall_join_long, aes(value_z, mean_log_Kn, colour = index)) +
   ) +
   theme_classic()
 
+# save figure
+ggsave(
+  filename = paste0("figures/", data_source, "/fall_body_condition_plot.png"),
+  plot = last_plot(),
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
 # -----------------------------
 # 3.23 Environment effects on body condition
 # -----------------------------
@@ -1447,7 +1470,6 @@ spring_env_vars <- c(
 # Fit one model per environmental variable
 spring_condition_models <- set_names(
   map(spring_env_vars, function(v) {
-
     dat <- seasonal_joint %>%
       filter(window == "aprtojun") %>%
       select(year, year_z, mean_log_Kn, all_of(v)) %>%
@@ -1465,7 +1487,6 @@ spring_condition_models <- set_names(
       warmup = 1500,
       seed = 22
     )
-
   }),
   spring_env_vars
 )
@@ -1487,7 +1508,6 @@ fall_env_vars <- c(
 # Fit one model per environmental variable
 fall_condition_models <- set_names(
   map(fall_env_vars, function(v) {
-
     dat <- seasonal_joint %>%
       filter(window == "augtooct") %>%
       select(year, year_z, mean_log_Kn, all_of(v)) %>%
@@ -1505,15 +1525,15 @@ fall_condition_models <- set_names(
       warmup = 1500,
       seed = 22
     )
-
   }),
   fall_env_vars
 )
 
 # combine spring and fall results
 full_condition_models <- c(
-    spring_condition_models,
-    fall_condition_models)
+  spring_condition_models,
+  fall_condition_models
+)
 
 # -----------------------------
 # 3.24 Summarize posterior effects of environmental covariates on seasonal body condition
@@ -1523,7 +1543,6 @@ full_condition_models <- c(
 full_condition_draws <- purrr::imap_dfr(
   full_condition_models,
   function(model, variable) {
-
     draws <- posterior::as_draws_matrix(
       model,
       variable = "b_env_z"
@@ -1559,7 +1578,6 @@ full_condition_posterior_summary <- full_condition_draws %>%
     median_pct = 100 * (exp(median_beta) - 1),
     lower_pct = 100 * (exp(lower_95) - 1),
     upper_pct = 100 * (exp(upper_95) - 1),
-
     .groups = "drop"
   )
 
@@ -1598,7 +1616,7 @@ p_full_condition_posterior <- ggplot(
     y = window,
     fill = season
   )
-) + 
+) +
   scale_y_discrete(
     labels = c(
       jantomar = "Jan to Mar",
@@ -1608,7 +1626,7 @@ p_full_condition_posterior <- ggplot(
     )
   ) +
   facet_wrap(
-    ~ index,
+    ~index,
     ncol = 2,
     scales = "free_x"
   ) +
@@ -1636,7 +1654,7 @@ p_full_condition_posterior
 
 # save plot
 ggsave(
-  filename = "figures/seasonal_condition_environment_effects.png",
+  filename = paste0("figures/", data_source, "/seasonal_condition_environment_effects.png"),
   plot = p_full_condition_posterior,
   width = 10,
   height = 8,
@@ -1649,13 +1667,12 @@ ggsave(
 # -----------------------------
 
 get_full_condition_relationship <- function(
-    model,
-    variable,
-    data = seasonal_joint,
-    season = c("aprtojun", "augtooct"),
-    ndraws = 1000
+  model,
+  variable,
+  data = seasonal_joint,
+  season = c("aprtojun", "augtooct"),
+  ndraws = 1000
 ) {
-
   # Original data used for this predictor
   dat <- data %>%
     filter(window %in% season) %>%
@@ -1709,24 +1726,28 @@ get_full_condition_relationship <- function(
   # Return both observed data and predictions
   list(
     observed = dat %>%
-      mutate(covariate = variable,
-             season = case_when(
-               season == "aprtojun" ~ "Spring",
-               season == "augtooct" ~ "Fall",
-               TRUE ~ NA_character_
-             ),
-             index = toupper(sub("_.*", "", variable)),
-             window = sub(".*_", "", variable)),
-
+      mutate(
+        covariate = variable,
+        season = case_when(
+          season == "aprtojun" ~ "Spring",
+          season == "augtooct" ~ "Fall",
+          TRUE ~ NA_character_
+        ),
+        index = toupper(sub("_.*", "", variable)),
+        window = sub(".*_", "", variable)
+      ),
     predicted = pred_summary %>%
-      mutate(covariate = variable,
-             season = case_when(
-               season == "aprtojun" ~ "Spring",
-               season == "augtooct" ~ "Fall",
-               TRUE ~ NA_character_
-             ),
-             index = toupper(sub("_.*", "", variable)),
-             window = sub(".*_", "", variable)))
+      mutate(
+        covariate = variable,
+        season = case_when(
+          season == "aprtojun" ~ "Spring",
+          season == "augtooct" ~ "Fall",
+          TRUE ~ NA_character_
+        ),
+        index = toupper(sub("_.*", "", variable)),
+        window = sub(".*_", "", variable)
+      )
+  )
 }
 
 # Run for all environmental variables
@@ -1774,12 +1795,16 @@ full_condition_predicted <- map_dfr(
 window_levels <- c("jantomar", "aprtojun", "maytojul", "augtooct")
 
 full_condition_observed <- full_condition_observed %>%
-  mutate(window = factor(window, levels = window_levels),
-         season = factor(season, levels = c("Spring", "Fall")))
+  mutate(
+    window = factor(window, levels = window_levels),
+    season = factor(season, levels = c("Spring", "Fall"))
+  )
 
 full_condition_predicted <- full_condition_predicted %>%
-  mutate(window = factor(window, levels = window_levels),
-         season = factor(season, levels = c("Spring", "Fall")))
+  mutate(
+    window = factor(window, levels = window_levels),
+    season = factor(season, levels = c("Spring", "Fall"))
+  )
 
 # -----------------------------
 # 3.27 Plot seasonal body condition relationships with environmental covariates
@@ -1826,7 +1851,6 @@ p_full_condition_relationships <- ggplot() +
     alpha = 0.5,
     size = 1.8
   ) +
-
   facet_grid(
     rows = vars(index),
     cols = vars(window),
@@ -1841,22 +1865,20 @@ p_full_condition_relationships <- ggplot() +
     scales = "free",
     # ncol = 3
   ) +
-
   labs(
     # title = "Seasonal body condition and environmental indices",
-    # subtitle = 
+    # subtitle =
     #   "Bayesian fitted relationships adjusted for nonlinear temporal trends",
     x = "Standardized environmental index",
     y = "Seasonal mean log condition"
   ) +
-
   theme_classic(base_size = 12)
 
 p_full_condition_relationships
 
 # save plot
 ggsave(
-  filename = "figures/seasonal_condition_environment_relationships.png",
+  filename = paste0("figures/", data_source, "/seasonal_condition_environment_relationships.png"),
   plot = p_full_condition_relationships,
   width = 12,
   height = 10,
@@ -1896,7 +1918,7 @@ p_full_condition_forest <- full_condition_posterior_summary %>%
     size = 2.5
   ) +
   facet_wrap(
-    ~ index,
+    ~index,
     ncol = 2,
     scales = "free_x"
   ) +
@@ -1926,4 +1948,3 @@ ggsave(
   height = 8,
   dpi = 300
 )
-
