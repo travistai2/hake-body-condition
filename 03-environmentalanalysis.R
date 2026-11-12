@@ -1942,7 +1942,7 @@ p_full_condition_forest
 
 # save plot
 ggsave(
-  filename = "figures/seasonal_condition_environment_forest.png",
+  filename = paste0("figures/", data_source, "/seasonal_condition_environment_forest.png"),
   plot = p_full_condition_forest,
   width = 10,
   height = 8,
