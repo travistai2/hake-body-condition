@@ -43,12 +43,15 @@ table(us_dat$Month)
 # Choose which data to use
 
 # data_source <- "LWAdat"
-data_source <- "usdat"
+# data_source <- "usdat"
+data_source <- "LWAdat_can"
 
 if (data_source == "LWAdat") {
   selected_data <- lwa_dat
 } else if (data_source == "usdat") {
   selected_data <- us_dat
+} else if (data_source == "LWAdat_can") {
+  selected_data <- lwa_dat %>% filter(Source %in% c("CAN_shoreside", "CAN_polish", "CAN_JV", "CAN_acoustic", "Acoustic Canada"))
 }
 
 table(selected_data$Source)
@@ -163,7 +166,7 @@ p_month_facet2 <- ggplot(lwa, aes(Length_cm, Weight_kg)) +
   theme_bw()
 p_month_facet2
 
-# rm(p_lw,p_age,p_month,p_month_facet,p_month_facet2)
+rm(p_lw, p_age, p_month, p_month_facet, p_month_facet2)
 
 # -----------------------------
 # 2.3 Mixed effects length-weight model
