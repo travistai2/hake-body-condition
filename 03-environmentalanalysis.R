@@ -1478,6 +1478,7 @@ spring_condition_models <- set_names(
 
     brm(
       mean_log_Kn ~ env_z + s(year, k = 8),
+      # mean_log_Kn ~ s(year, k = 5),  # choose this for Canada data - not enough degrees of freedom
       # mean_log_Kn ~ env_z,
       data = dat,
       family = student(),
@@ -1822,6 +1823,7 @@ p_full_condition_relationships <- ggplot() +
   # 95% credible interval
   geom_ribbon(
     data = full_condition_predicted,
+    # data = full_condition_predicted %>% filter(season == "Fall"),  # use for canada data because spring effects small
     aes(
       x = env_z,
       ymin = lower_95,
@@ -1833,6 +1835,7 @@ p_full_condition_relationships <- ggplot() +
   # Median fitted relationship
   geom_line(
     data = full_condition_predicted,
+    # data = full_condition_predicted %>% filter(season == "Fall"), # use for canada data because spring effects small
     aes(
       x = env_z,
       y = median
@@ -1843,6 +1846,7 @@ p_full_condition_relationships <- ggplot() +
   # Observed annual values
   geom_point(
     data = full_condition_observed,
+    # data = full_condition_observed %>% filter(season == "Fall"), # use for canada data because spring effects small
     aes(
       x = env_z,
       y = mean_log_Kn,
@@ -1851,9 +1855,23 @@ p_full_condition_relationships <- ggplot() +
     alpha = 0.5,
     size = 1.8
   ) +
-  facet_grid(
-    rows = vars(index),
-    cols = vars(window),
+  # facet_grid(
+  #   rows = vars(index),
+  #   cols = vars(window),
+  #   labeller = labeller(
+  #     window = c(
+  #       jantomar = "Jan to Mar",
+  #       aprtojun = "Apr to Jun",
+  #       maytojul = "May to Jul",
+  #       augtooct = "Aug to Oct"
+  #     )
+  #   ),
+  #   scales = "free"
+  # ) +
+
+  facet_wrap( # this is used instead of facet_grid for better axis scales
+    ~ index + window,
+    ncol = 4,
     labeller = labeller(
       window = c(
         jantomar = "Jan to Mar",
@@ -1862,8 +1880,7 @@ p_full_condition_relationships <- ggplot() +
         augtooct = "Aug to Oct"
       )
     ),
-    scales = "free",
-    # ncol = 3
+    scales = "free"
   ) +
   labs(
     # title = "Seasonal body condition and environmental indices",
