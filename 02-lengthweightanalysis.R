@@ -42,9 +42,9 @@ table(us_dat$Month)
 #####
 # Choose which data to use
 
-# data_source <- "LWAdat"
+data_source <- "LWAdat"
 # data_source <- "usdat"
-data_source <- "LWAdat_can"
+# data_source <- "LWAdat_can"
 
 if (data_source == "LWAdat") {
   selected_data <- lwa_dat
