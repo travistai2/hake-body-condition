@@ -40,11 +40,11 @@ hist(us_dat$Month, breaks = 20, main = "Distribution of data by month", xlab = "
 table(us_dat$Month)
 
 #####
-# Choose which data to use
+# Choose which data to use - keep lw analysis to all the data (for Canada data)
+#  Should do USdata separately as it is more recent and is majority of the data anyways.
 
 data_source <- "LWAdat"
 # data_source <- "usdat"
-# data_source <- "LWAdat_can"
 
 if (data_source == "LWAdat") {
   selected_data <- lwa_dat
