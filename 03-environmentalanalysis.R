@@ -132,11 +132,40 @@ names(env_wide_rolling)
 # 3.2 Correlations with environmental covariates
 # -----------------------------
 
-# join with body condition data
-dat_env <- cond_monthly %>%
+#####
+# Reset data_source  - choose which data to use
+# All data, or filter only canada or us data
+
+# data_source <- "LWAdat"
+# data_source <- "usdat"
+data_source <- "LWAdat_can"
+
+if (data_source == "LWAdat") {
+  selected_data <- lwa_cond
+} else if (data_source == "usdat") {
+  selected_data <- lwa_cond
+} else if (data_source == "LWAdat_can") {
+  selected_data <- lwa_cond %>% filter(Source %in% c("CAN_shoreside", "CAN_polish", "CAN_JV", "CAN_acoustic", "Acoustic Canada"))
+}
+
+# check source of data aligns with selected type
+unique(selected_data$Source)
+
+# summarize condition by month abd join with body condition data
+cond_monthly <- selected_data %>%
+  group_by(year, month) %>%
+  summarise(
+    mean_Kn = mean(Kn, na.rm = TRUE),
+    median_Kn = median(Kn, na.rm = TRUE),
+    mean_log_Kn = mean(log_Kn, na.rm = TRUE),
+    sd_log_Kn = sd(log_Kn, na.rm = TRUE),
+    se_log_Kn = sd_log_Kn / sqrt(n()),
+    n_fish = n(),
+    .groups = "drop"
+  ) %>%
   left_join(env_wide_rolling, by = c("year", "month"))
 
-# Names of dat_env environmental data columns:
+# Names of cond_monthly environmental data columns:
 env_vars <- c(
   "pdo_lagprev1month",
   "npgo_lagprev1month",
@@ -157,7 +186,7 @@ env_vars <- c(
 
 # correlations of environmental variables with mean body condition
 cor_results <- map_dfr(env_vars, function(v) {
-  tmp <- dat_env %>%
+  tmp <- cond_monthly %>%
     select(mean_log_Kn, all_of(v)) %>%
     drop_na()
 
@@ -178,7 +207,7 @@ cor_results <- map_dfr(env_vars, function(v) {
 cor_results
 
 # correlation plot of mean condition for previous 3 months only
-ggpairs(dat_env %>% select(mean_Kn, contains("lagprev1to3months"))) +
+ggpairs(cond_monthly %>% select(mean_Kn, contains("lagprev1to3months"))) +
   theme_bw() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1)
@@ -196,36 +225,9 @@ ggsave(
 # 3.3 Mixed effects models for environmental effects
 # -----------------------------
 
-# filter only canada or us data
-filter_index <- unique(lwa_cond$Source)
-filter_index_can <- c("CAN_acoustic", "CAN_shoreside", "CAN_JV", "CAN_polish", "Acoustic Canada")
-filter_index_us <- c("US_foreign", "US_JV", "US_shore", "US_acoustic", "US_atsea", "Acoustic U.S.")
-
-# selected data
-selected <- "all"
-# selected <- "us"
-# selected <- "can"
-
-if (selected == "all") {
-  lwa_env <- lwa_cond %>%
-    filter(Source %in% filter_index)
-} else {
-  if (selected == "us") {
-    lwa_env <- lwa_cond %>%
-      filter(Source %in% filter_index_us)
-  } else {
-    if (selected == "can") {
-      lwa_env <- lwa_cond %>%
-        filter(Source %in% filter_index_can)
-    } else {
-      rm(lwa_env)
-    }
-  }
-}
-
 # Fish-level model: body condition as response.
 # Environmental covariates joined to each fish by Year-Month.
-lwa_env <- lwa_env %>%
+lwa_env <- selected_data %>%
   mutate(
     year = as.integer(as.character(year)),
     month = as.integer(as.character(month))
@@ -279,8 +281,7 @@ env_model_results
 # -----------------------------
 
 # filter out Source
-cond_monthly <- lwa_cond %>%
-  filter(Source %in% filter_index) %>%
+cond_monthly <- selected_data %>%
   group_by(year, month) %>%
   summarise(
     mean_Kn = mean(Kn, na.rm = TRUE),
@@ -292,12 +293,12 @@ cond_monthly <- lwa_cond %>%
     .groups = "drop"
   )
 
-dat_env <- cond_monthly %>%
+cond_monthly_env <- cond_monthly %>%
   left_join(env_wide_rolling, by = c("year", "month"))
 
 # plotting function for environmental covariates vs mean body condition
 plot_env_relationship <- function(v) {
-  ggplot(dat_env, aes(x = .data[[v]], y = mean_Kn)) +
+  ggplot(cond_monthly_env, aes(x = .data[[v]], y = mean_Kn)) +
     geom_hline(yintercept = 1, linetype = "dashed") +
     geom_point(aes(size = n_fish), alpha = 0.6) +
     scale_size_continuous(range = c(1, 3)) +
@@ -393,24 +394,23 @@ ggsave(
 # 3.11 Join monthly environmental covariates
 # -----------------------------
 
-# select which subset of data to use for analysis: all, us, or can
-selected <- "all"
-# selected <- "us"
-# selected <- "can"
 
-# condition monthly draws from previous section 02-lengthweightanalysis.R
-if (selected == "all") {
+# need to run cond_monthly draws based on full lwa data, lwa canada subset, or us_lwa data
+data_source
+
+if (data_source == "LWAdat") {
   cond_monthly_draws_used <- cond_monthly_draws
-} else {
-  if (selected == "us") {
-    cond_monthly_draws_used <- cond_monthly_draws_us
-  } else {
-    if (selected == "can") {
-      cond_monthly_draws_used <- cond_monthly_draws_can
-    } else {
-      rm(cond_monthly_draws_used)
-    }
-  }
+} else if (data_source == "usdat") {
+  cond_monthly_draws_used <- cond_monthly_draws
+} else if (data_source == "LWAdat_can") {
+  cond_monthly_draws_used <- make_monthly_condition_draws(
+    model = m_lw_bayes,
+    data = lwa_bayes %>% filter(Source %in% c("CAN_shoreside", "CAN_polish", "CAN_JV", "CAN_acoustic", "Acoustic Canada")),
+    ndraws = 500,
+    chunk_size = 10000,
+    seed = 22,
+    include_source_effect = TRUE
+  )
 }
 
 # combine condition draws with environmental covariates
@@ -612,77 +612,77 @@ env_models_bayes <- list(
   pdo_lagprev1month = fit_environment_model(
     variable = "pdo_lagprev1month",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_pdo_lagprev1month_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_pdo_lagprev1month")
   ),
   npgo_lagprev1month = fit_environment_model(
     variable = "npgo_lagprev1month",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_npgo_lagprev1month_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_npgo_lagprev1month")
   ),
   oni_lagprev1month = fit_environment_model(
     variable = "oni_lagprev1month",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_oni_lagprev1month_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_oni_lagprev1month")
   ),
   npi_lagprev1month = fit_environment_model(
     variable = "npi_lagprev1month",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_npi_lagprev1month_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_npi_lagprev1month")
   ),
   mei_lagprev1month = fit_environment_model(
     variable = "mei_lagprev1month",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_mei_lagprev1month_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_mei_lagprev1month")
   ),
   pdo_lagprev1to3months = fit_environment_model(
     variable = "pdo_lagprev1to3months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_pdo_lagprev1to3months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_pdo_lagprev1to3months")
   ),
   npgo_lagprev1to3months = fit_environment_model(
     variable = "npgo_lagprev1to3months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_npgo_lagprev1to3months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_npgo_lagprev1to3months")
   ),
   oni_lagprev1to3months = fit_environment_model(
     variable = "oni_lagprev1to3months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_oni_lagprev1to3months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_oni_lagprev1to3months")
   ),
   npi_lagprev1to3months = fit_environment_model(
     variable = "npi_lagprev1to3months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_npi_lagprev1to3months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_npi_lagprev1to3months")
   ),
   mei_lagprev1to3months = fit_environment_model(
     variable = "mei_lagprev1to3months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_mei_lagprev1to3months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_mei_lagprev1to3months")
   ),
   pdo_lagprev1to6months = fit_environment_model(
     variable = "pdo_lagprev1to6months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_pdo_lagprev1to6months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_pdo_lagprev1to6months")
   ),
   npgo_lagprev1to6months = fit_environment_model(
     variable = "npgo_lagprev1to6months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_npgo_lagprev1to6months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_npgo_lagprev1to6months")
   ),
   oni_lagprev1to6months = fit_environment_model(
     variable = "oni_lagprev1to6months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_oni_lagprev1to6months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_oni_lagprev1to6months")
   ),
   npi_lagprev1to6months = fit_environment_model(
     variable = "npi_lagprev1to6months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_npi_lagprev1to6months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_npi_lagprev1to6months")
   ),
   mei_lagprev1to6months = fit_environment_model(
     variable = "mei_lagprev1to6months",
     data_list = environment_data_list,
-    model_file = paste0("model-outputs/", data_source, "_m_env_mei_lagprev1to6months_", selected)
+    model_file = paste0("model-outputs/", data_source, "_m_env_mei_lagprev1to6months")
   )
 )
 
@@ -767,22 +767,22 @@ dir.create(
 
 saveRDS(
   cond_monthly_draws,
-  file = paste0("model-outputs/posterior-outputs/", data_source, "_condition_monthly_posterior_draws_", selected, ".rds")
+  file = paste0("model-outputs/posterior-outputs/", data_source, "_condition_monthly_posterior_draws.rds")
 )
 
 saveRDS(
   cond_monthly_summary,
-  file = paste0("model-outputs/posterior-outputs/", data_source, "_condition_monthly_posterior_summary_", selected, ".rds")
+  file = paste0("model-outputs/posterior-outputs/", data_source, "_condition_monthly_posterior_summary.rds")
 )
 
 saveRDS(
   env_scaling,
-  file = paste0("model-outputs/posterior-outputs/", data_source, "_environment_covariate_scaling_", selected, ".rds")
+  file = paste0("model-outputs/posterior-outputs/", data_source, "_environment_covariate_scaling.rds")
 )
 
 write.csv(
   cond_monthly_summary,
-  file = paste0("model-outputs/posterior-outputs/", data_source, "_condition_monthly_posterior_summary_", selected, ".csv"),
+  file = paste0("model-outputs/posterior-outputs/", data_source, "_condition_monthly_posterior_summary.csv"),
   row.names = FALSE
 )
 
@@ -1041,7 +1041,7 @@ ggsave(
 # funtion to plot linear relationship
 plot_env_linear <- function(
   variable,
-  data = dat_env,
+  data = cond_monthly_env,
   posterior_draws = env_posterior_draws,
   response = "mean_log_Kn",
   n_grid = 100,
@@ -1478,7 +1478,7 @@ spring_condition_models <- set_names(
 
     brm(
       mean_log_Kn ~ env_z + s(year, k = 8),
-      # mean_log_Kn ~ s(year, k = 5),  # choose this for Canada data - not enough degrees of freedom
+      # mean_log_Kn ~ env_z + s(year, k = 5),  # choose this for Canada data - not enough degrees of freedom
       # mean_log_Kn ~ env_z,
       data = dat,
       family = student(),
