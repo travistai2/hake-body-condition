@@ -664,6 +664,14 @@ annual_age_env_summary <- annual_age_env_draws %>%
 # table of posterior coefficient estimates for each env variables
 annual_age_env_summary
 
+# output table of posterior coefficient summaries for each environmental variable
+dir.create(paste0("model-outputs/", data_source), recursive = TRUE)
+write.csv(
+  annual_age_env_summary,
+  file = paste0("model-outputs/", data_source, "/annual_age_env_summary.csv"),
+  row.names = FALSE
+)
+
 # -----------------------------
 # 4.8 plot all posterior coefficient distributions
 # -----------------------------
@@ -952,6 +960,7 @@ pp_check(fit, type = "ribbon", x = "Year") +
 #####
 #####
 #####
+
 
 # -----------------------------
 # 4.21 Annual age environmental model with multiple lags and AR(3) autocorrelation in one model
@@ -1685,31 +1694,66 @@ cumulative_all %>%
 #####
 #####
 #####
-### NEED TO UPDATE BELOW SCRIPT STILL
+#####
 
+# Plot annual mean-age effects by index, exposure window, and lag, then evaluate fit and predictions.
+# for the separate lag model
 
 # -----------------------------
-# 5.9 environmental effects plot - data organizing
+# 4.31 environmental effects plot - data organizing
 # -----------------------------
 
-get_model_data <- function(
-  model,
-  env_variable,
-  source_data = annual_age_env
-) {
+# Model names include a time suffix; the predictor column names do not.
+get_annual_model_context <- function(model_name) {
+  if (!grepl("_(current|lag[1-3])$", model_name)) {
+    stop(
+      "Model name must end in _current or _lag1 through _lag3: ",
+      model_name,
+      call. = FALSE
+    )
+  }
+
+  year_lag <- sub(
+    "^.*_(current|lag[1-3])$",
+    "\\1",
+    model_name
+  )
+  env_variable <- sub(
+    "_(current|lag[1-3])$",
+    "",
+    model_name
+  )
+
+  source_data <- switch(year_lag,
+    current = annual_age_env_current_scaled,
+    lag1 = annual_age_env_lag1_scaled,
+    lag2 = annual_age_env_lag2_scaled,
+    lag3 = annual_age_env_lag3_scaled,
+    stop("Unsupported model time suffix: ", year_lag, call. = FALSE)
+  )
+
+  timing_label <- switch(year_lag,
+    current = "Current year",
+    lag1 = "Lag 1 year",
+    lag2 = "Lag 2 years",
+    lag3 = "Lag 3 years"
+  )
+
+  list(
+    env_variable = env_variable,
+    source_data = source_data,
+    timing_label = timing_label
+  )
+}
+
+get_model_data <- function(env_variable, source_data) {
   required_variables <- c(
     "Year",
     "mean_age",
     "n_fish",
-    "n_sources",
-    # only keep index and exposure window and drop lag in env_variable name
-    sub("_(current|lag[1-3])$", "", env_variable)
+    env_variable
   )
-
-  missing_variables <- setdiff(
-    required_variables,
-    names(source_data)
-  )
+  missing_variables <- setdiff(required_variables, names(source_data))
 
   if (length(missing_variables) > 0L) {
     stop(
@@ -1719,7 +1763,7 @@ get_model_data <- function(
     )
   }
 
-  source_data %>%
+  model_data <- source_data %>%
     filter(
       if_all(
         all_of(required_variables),
@@ -1727,49 +1771,42 @@ get_model_data <- function(
       )
     ) %>%
     arrange(Year)
+
+  if (nrow(model_data) == 0L) {
+    stop(
+      "No complete observations for environmental variable: ",
+      env_variable,
+      call. = FALSE
+    )
+  }
+
+  model_data
 }
 
 get_annual_env_effect <- function(
   model,
+  model_name,
   env_variable,
-  source_data = annual_age_env,
+  source_data,
   prediction_length = 100
 ) {
   model_data <- get_model_data(
-    model = model,
     env_variable = env_variable,
     source_data = source_data
   )
+  env_values <- model_data[[env_variable]]
 
   prediction_data <- tibble(
-    env_value = seq(
-      min(
-        model_data[[env_variable]],
-        na.rm = TRUE
-      ),
-      max(
-        model_data[[env_variable]],
-        na.rm = TRUE
-      ),
-      length.out = prediction_length
-    ),
-    year_z = 0,
-    log_n_fish = median(
-      model_data$log_n_fish,
-      na.rm = TRUE
-    ),
-    n_months = median(
-      model_data$n_months,
-      na.rm = TRUE
-    ),
-    n_sources = median(
-      model_data$n_sources,
-      na.rm = TRUE
+    Year = rep(
+      median(model_data$Year),
+      prediction_length
     )
   )
-
-  prediction_data[[env_variable]] <-
-    prediction_data$env_value
+  prediction_data[[env_variable]] <- seq(
+    min(env_values),
+    max(env_values),
+    length.out = prediction_length
+  )
 
   fitted_summary <- fitted(
     model,
@@ -1780,50 +1817,50 @@ get_annual_env_effect <- function(
     as_tibble()
 
   bind_cols(
-    prediction_data,
+    tibble(env_value = prediction_data[[env_variable]]),
     fitted_summary
   ) %>%
-    mutate(
-      covariate = env_variable
-    )
+    mutate(covariate = model_name)
 }
 
 # -----------------------------
-# 5.10 function to plot one env relationship
+# 4.32 function to plot one env relationship
 # -----------------------------
 
 plot_annual_age_env_effect <- function(
   model,
+  model_name,
   env_variable,
-  source_data = annual_age_env
+  source_data
 ) {
   model_data <- get_model_data(
-    model = model,
     env_variable = env_variable,
     source_data = source_data
   )
 
   effect_data <- get_annual_env_effect(
     model = model,
+    model_name = model_name,
     env_variable = env_variable,
     source_data = source_data
   )
 
+  model_context <- get_annual_model_context(model_name)
   index_label <- case_when(
     grepl("^pdo", env_variable) ~ "PDO",
     grepl("^npgo", env_variable) ~ "NPGO",
     grepl("^oni", env_variable) ~ "ONI",
+    grepl("^bi", env_variable) ~ "BI",
     grepl("^npi", env_variable) ~ "NPI",
     grepl("^mei", env_variable) ~ "MEI",
     TRUE ~ env_variable
   )
-
-  timing_label <- case_when(
-    grepl("current", env_variable) ~ "Current year",
-    grepl("lag1", env_variable) ~ "lag 1 year",
-    grepl("lag2", env_variable) ~ "lag 2 years",
-    grepl("lag3", env_variable) ~ "lag 3 years",
-    TRUE ~ ""
+  exposure_label <- case_when(
+    grepl("_jantomar$", env_variable) ~ "Jan to Mar",
+    grepl("_aprtojun$", env_variable) ~ "Apr to Jun",
+    grepl("_jultosep$", env_variable) ~ "Jul to Sep",
+    grepl("_octtodec$", env_variable) ~ "Oct to Dec",
+    TRUE ~ env_variable
   )
 
   ggplot(
@@ -1867,12 +1904,9 @@ plot_annual_age_env_effect <- function(
       trans = "sqrt"
     ) +
     labs(
-      title = paste(
-        "Annual mean age and",
-        index_label
-      ),
-      subtitle = timing_label,
-      x = index_label,
+      title = paste(index_label, exposure_label),
+      subtitle = model_context$timing_label,
+      x = "Standardized environmental index",
       y = "Predicted annual mean age (years)",
       size = "Fish sampled"
     ) +
@@ -1881,52 +1915,87 @@ plot_annual_age_env_effect <- function(
 
 
 # -----------------------------
-# 5.11 effects plot for each env variable
+# 4.33 effects plot for each env variable
 # -----------------------------
 
 annual_age_env_effect_plots <- imap(
   annual_age_env_models_all,
-  \(model, variable) {
+  \(model, model_name) {
+    model_context <- get_annual_model_context(model_name)
+
     plot_annual_age_env_effect(
       model = model,
-      env_variable = variable,
-      source_data = annual_age_env
+      model_name = model_name,
+      env_variable = model_context$env_variable,
+      source_data = model_context$source_data
     )
   }
 )
 
-# display all variables in separate plots
-walk(
+combine_annual_age_env_plots_by_index <- function(plots_by_index) {
+  imap(
+    plots_by_index,
+    \(index_plots, index) {
+      index_plot <- wrap_plots(
+        index_plots,
+        ncol = 4,
+        guides = "collect"
+      ) +
+        plot_annotation(
+          title = toupper(index)
+        )
+
+      index_plot &
+        theme(
+          legend.position = "bottom"
+        )
+    }
+  )
+}
+
+# Group by index. Within each index, columns are exposure windows and rows
+# are current year through lag 3.
+annual_age_env_effect_plots_by_index <- split(
   annual_age_env_effect_plots,
+  factor(
+    sub("_.*$", "", names(annual_age_env_effect_plots)),
+    levels = c("pdo", "npgo", "oni", "npi", "mei")
+  )
+)
+
+annual_age_env_effect_combined_by_index <-
+  combine_annual_age_env_plots_by_index(
+    annual_age_env_effect_plots_by_index
+  )
+
+walk(
+  annual_age_env_effect_combined_by_index,
   print
 )
 
-# all variables in one plot
-annual_age_env_effect_combined <-
-  wrap_plots(
-    annual_age_env_effect_plots,
-    ncol = 2,
-    guides = "collect"
-  ) &
-    theme(
-      legend.position = "bottom"
-    )
-
-# show single plot
-annual_age_env_effect_combined
+# save each figure by index
+walk2(
+  annual_age_env_effect_combined_by_index,
+  names(annual_age_env_effect_combined_by_index),
+  ~ ggsave(
+    filename = paste0("figures/", data_source, "/annual_age_env_effect_observed_with_posteriorpred_", .y, ".png"),
+    plot = .x
+  )
+)
 
 
 # -----------------------------
-# 5.12 posterior predictions and model evaluation
+# 4.34 posterior predictions and model evaluation
 # -----------------------------
 
 get_annual_fitted_values <- function(
   model,
-  env_variable
+  model_name
 ) {
+  model_context <- get_annual_model_context(model_name)
   model_data <- get_model_data(
-    model = model,
-    env_variable = env_variable
+    env_variable = model_context$env_variable,
+    source_data = model_context$source_data
   )
 
   fitted_values <- fitted(
@@ -1949,18 +2018,16 @@ get_annual_fitted_values <- function(
       ),
     fitted_values
   ) %>%
-    mutate(
-      covariate = env_variable
-    )
+    mutate(covariate = model_name)
 }
 
 # table of posterior values with error
 annual_age_env_fitted <- imap_dfr(
-  annual_age_env_models,
-  \(model, variable) {
+  annual_age_env_models_all,
+  \(model, model_name) {
     get_annual_fitted_values(
       model = model,
-      env_variable = variable
+      model_name = model_name
     )
   }
 )
@@ -1971,90 +2038,148 @@ annual_age_env_fitted <- annual_age_env_fitted %>%
     residual = mean_age - Estimate
   )
 
-# plots of observed vs fitted through time
-ggplot(
+# observed and fitted values through time, grouped by index
+annual_age_env_fitted_by_index <- split(
   annual_age_env_fitted,
-  aes(x = Year)
-) +
-  geom_ribbon(
-    aes(
-      ymin = Q2.5,
-      ymax = Q97.5
-    ),
-    alpha = 0.2
-  ) +
-  geom_line(
-    aes(y = Estimate),
-    linewidth = 0.8
-  ) +
-  geom_point(
-    aes(y = mean_age),
-    size = 1.5
-  ) +
-  facet_wrap(
-    ~covariate,
-    ncol = 2
-  ) +
-  labs(
-    x = "Year",
-    y = "Mean age",
-    title = "Observed and fitted annual mean age"
-  ) +
-  theme_classic()
-
-# plot residuals through time
-ggplot(
-  annual_age_env_fitted,
-  aes(
-    x = Year,
-    y = residual
+  factor(
+    sub("_.*$", "", annual_age_env_fitted$covariate),
+    levels = c("pdo", "npgo", "oni", "npi", "mei")
   )
-) +
-  geom_hline(
-    yintercept = 0,
-    linetype = "dashed"
-  ) +
-  geom_point() +
-  geom_smooth(
-    method = "loess",
-    se = FALSE
-  ) +
-  facet_wrap(
-    ~covariate,
-    ncol = 2
-  ) +
-  labs(
-    x = "Year",
-    y = "Observed - fitted mean age",
-    title = "Residual patterns through time"
-  ) +
-  theme_classic()
+)
 
+annual_age_env_time_series_plots_by_index <- imap(
+  annual_age_env_fitted_by_index,
+  \(index_data, index) {
+    index_data$covariate <- factor(
+      index_data$covariate,
+      levels = names(annual_age_env_models_all)
+    )
 
-# observed vs fitted
-ggplot(
-  annual_age_env_fitted,
-  aes(
-    x = Estimate,
-    y = mean_age
-  )
-) +
-  geom_point() +
-  geom_abline(
-    slope = 1,
-    intercept = 0,
-    linetype = "dashed"
-  ) +
-  facet_wrap(
-    ~covariate,
-    ncol = 2
-  ) +
-  labs(
-    x = "Fitted mean age",
-    y = "Observed mean age",
-    title = "Observed versus fitted annual mean age"
-  ) +
-  theme_classic()
+    ggplot(
+      index_data,
+      aes(x = Year)
+    ) +
+      geom_ribbon(
+        aes(
+          ymin = Q2.5,
+          ymax = Q97.5
+        ),
+        alpha = 0.2
+      ) +
+      geom_line(
+        aes(y = Estimate),
+        linewidth = 0.8
+      ) +
+      geom_point(
+        aes(y = mean_age),
+        size = 1.5
+      ) +
+      facet_wrap(
+        ~covariate,
+        ncol = 4,
+        labeller = labeller(covariate = \(x) gsub("_", " ", x))
+      ) +
+      labs(
+        x = "Year",
+        y = "Mean age",
+        title = paste(
+          "Observed and fitted annual mean age:",
+          toupper(index)
+        )
+      ) +
+      theme_classic()
+  }
+)
+
+walk(
+  annual_age_env_time_series_plots_by_index,
+  print
+)
+
+# residuals through time, grouped by index
+annual_age_env_residual_plots_by_index <- imap(
+  annual_age_env_fitted_by_index,
+  \(index_data, index) {
+    index_data$covariate <- factor(
+      index_data$covariate,
+      levels = names(annual_age_env_models_all)
+    )
+
+    ggplot(
+      index_data,
+      aes(
+        x = Year,
+        y = residual
+      )
+    ) +
+      geom_hline(
+        yintercept = 0,
+        linetype = "dashed"
+      ) +
+      geom_point() +
+      geom_smooth(
+        method = "loess",
+        se = FALSE
+      ) +
+      facet_wrap(
+        ~covariate,
+        ncol = 4,
+        labeller = labeller(covariate = \(x) gsub("_", " ", x))
+      ) +
+      labs(
+        x = "Year",
+        y = "Observed - fitted mean age",
+        title = paste("Residual patterns through time:", toupper(index))
+      ) +
+      theme_classic()
+  }
+)
+
+walk(
+  annual_age_env_residual_plots_by_index,
+  print
+)
+
+# observed versus fitted, grouped by index
+annual_age_env_observed_fitted_plots_by_index <- imap(
+  annual_age_env_fitted_by_index,
+  \(index_data, index) {
+    index_data$covariate <- factor(
+      index_data$covariate,
+      levels = names(annual_age_env_models_all)
+    )
+
+    ggplot(
+      index_data,
+      aes(
+        x = Estimate,
+        y = mean_age
+      )
+    ) +
+      geom_point() +
+      geom_abline(
+        slope = 1,
+        intercept = 0,
+        linetype = "dashed"
+      ) +
+      facet_wrap(
+        ~covariate,
+        ncol = 4,
+        labeller = labeller(covariate = \(x) gsub("_", " ", x))
+      ) +
+      labs(
+        x = "Fitted mean age",
+        y = "Observed mean age",
+        title = paste("Observed versus fitted annual mean age:", toupper(index))
+      ) +
+      theme_classic()
+  }
+)
+
+walk(
+  annual_age_env_observed_fitted_plots_by_index,
+  print
+)
 
 # rmse and mean absolute error
 annual_age_env_fit_summary <- annual_age_env_fitted %>%
@@ -2082,24 +2207,19 @@ annual_age_env_fit_summary <- annual_age_env_fitted %>%
 annual_age_env_fit_summary
 
 # -----------------------------
-# 5.13 function to plot observed vs fitted ages over time
+# 4.35 function to plot observed vs fitted ages over time
 # -----------------------------
-
 
 plot_annual_fitted <- function(
   model,
-  env_variable
+  model_name
 ) {
   fitted_data <- get_annual_fitted_values(
     model = model,
-    env_variable = env_variable
+    model_name = model_name
   )
 
-  plot_title <- gsub(
-    "_annual_z$",
-    "",
-    env_variable
-  )
+  plot_title <- gsub("_", " ", model_name)
 
   ggplot(
     fitted_data,
@@ -2145,31 +2265,48 @@ plot_annual_fitted <- function(
 }
 
 annual_age_env_fitted_plots <- imap(
-  annual_age_env_models,
-  \(model, variable) {
+  annual_age_env_models_all,
+  \(model, model_name) {
     plot_annual_fitted(
       model = model,
-      env_variable = variable
+      model_name = model_name
     )
   }
 )
 
-# only need one plot to see, but worth it to view other if needed
-annual_age_env_fitted_plots[[1]]
+# combine fitted-through-time plots by index
+annual_age_env_fitted_model_plots_by_index <- split(
+  annual_age_env_fitted_plots,
+  factor(
+    sub("_.*$", "", names(annual_age_env_fitted_plots)),
+    levels = c("pdo", "npgo", "oni", "npi", "mei")
+  )
+)
+
+annual_age_env_fitted_model_combined_by_index <-
+  combine_annual_age_env_plots_by_index(
+    annual_age_env_fitted_model_plots_by_index
+  )
+
+walk(
+  annual_age_env_fitted_model_combined_by_index,
+  print
+)
 
 # -----------------------------
-# 5.14 posterior predictive intervals
+# 4.36 posterior predictive intervals
 # -----------------------------
 
 # posterior predictive intervals
 get_annual_predictive_summary <- function(
   model,
-  env_variable,
+  model_name,
   ndraws = 2000
 ) {
+  model_context <- get_annual_model_context(model_name)
   model_data <- get_model_data(
-    model = model,
-    env_variable = env_variable
+    env_variable = model_context$env_variable,
+    source_data = model_context$source_data
   )
 
   # Posterior predictive draws
@@ -2206,19 +2343,17 @@ get_annual_predictive_summary <- function(
       ),
     predictive_summary
   ) %>%
-    mutate(
-      covariate = env_variable
-    )
+    mutate(covariate = model_name)
 }
 
 set.seed(123)
 
 annual_age_env_predictive <- imap_dfr(
-  annual_age_env_models,
-  \(model, variable) {
+  annual_age_env_models_all,
+  \(model, model_name) {
     get_annual_predictive_summary(
       model = model,
-      env_variable = variable,
+      model_name = model_name,
       ndraws = 2000
     )
   }
@@ -2229,13 +2364,9 @@ annual_age_env_predictive
 # posterior predictions with observations
 plot_annual_predictive <- function(
   predictive_data,
-  env_variable
+  model_name
 ) {
-  plot_title <- gsub(
-    "_annual_z$",
-    "",
-    env_variable
-  )
+  plot_title <- gsub("_", " ", model_name)
 
   ggplot(
     predictive_data,
@@ -2288,23 +2419,333 @@ plot_annual_predictive <- function(
 annual_age_env_predictive_plots <- annual_age_env_predictive %>%
   split(.$covariate) %>%
   imap(
-    \(data, variable) {
+    \(predictive_data, model_name) {
       plot_annual_predictive(
-        predictive_data = data,
-        env_variable = variable
+        predictive_data = predictive_data,
+        model_name = model_name
       )
     }
   )
 
-walk(
+annual_age_env_predictive_plots_by_index <- split(
   annual_age_env_predictive_plots,
+  factor(
+    sub("_.*$", "", names(annual_age_env_predictive_plots)),
+    levels = c("pdo", "npgo", "oni", "npi", "mei")
+  )
+)
+
+annual_age_env_predictive_combined_by_index <-
+  combine_annual_age_env_plots_by_index(
+    annual_age_env_predictive_plots_by_index
+  )
+
+walk(
+  annual_age_env_predictive_combined_by_index,
   print
 )
 
-# combine plots
-annual_age_env_predictive_combined <- wrap_plots(
-  annual_age_env_predictive_plots,
-  ncol = 3
+#####
+#####
+#####
+#####
+#####
+
+# Evaluate the multi-lag autoregressive models and their posterior predictions.
+
+# -----------------------------
+# 4.41 autoregressive model data and conditional effects
+# -----------------------------
+
+get_annual_ar_model_data <- function(model, env_variable, age_data = annual_age) {
+  model_data <- model$data
+  lag_variables <- paste0(env_variable, "_lag", 0:3)
+  required_variables <- c("Year", "mean_age", lag_variables)
+  missing_variables <- setdiff(required_variables, names(model_data))
+  missing_age_variables <- setdiff(c("Year", "mean_age", "n_fish"), names(age_data))
+
+  if (length(missing_variables) > 0L) {
+    stop("Missing variables in model data: ", paste(missing_variables, collapse = ", "), call. = FALSE)
+  }
+  if (length(missing_age_variables) > 0L) {
+    stop("Missing variables in age data: ", paste(missing_age_variables, collapse = ", "), call. = FALSE)
+  }
+  if (anyDuplicated(age_data$Year)) {
+    stop("Age data must have one row per year.", call. = FALSE)
+  }
+
+  age_rows <- match(model_data$Year, age_data$Year)
+  if (anyNA(age_rows) || anyNA(age_data$n_fish[age_rows])) {
+    stop("Missing fish counts for one or more model years.", call. = FALSE)
+  }
+  if (!isTRUE(all.equal(
+    as.numeric(model_data$mean_age),
+    as.numeric(age_data$mean_age[age_rows])
+  ))) {
+    stop("Age data do not match the observations used to fit the model.", call. = FALSE)
+  }
+  if (any(!complete.cases(model_data[, required_variables]))) {
+    stop("Model data contain incomplete observations.", call. = FALSE)
+  }
+
+  model_data$n_fish <- age_data$n_fish[age_rows]
+  model_data
+}
+
+get_annual_ar_effect <- function(model, env_variable, lag, model_data) {
+  lag_variables <- paste0(env_variable, "_lag", 0:3)
+  effect_variable <- lag_variables[lag + 1]
+  reference_data <- as_tibble(model_data[1, c("Year", lag_variables)])
+  reference_data$Year <- median(model_data$Year)
+  for (variable in lag_variables) {
+    reference_data[[variable]] <- median(model_data[[variable]])
+  }
+
+  effect <- brms::conditional_effects(
+    model,
+    effects = effect_variable,
+    conditions = reference_data,
+    re_formula = NA,
+    robust = FALSE,
+    prob = 0.95
+  )[[1]]
+
+  tibble(
+    covariate = env_variable,
+    lag = paste0("lag", lag),
+    env_value = effect[[effect_variable]],
+    Estimate = effect$estimate__,
+    lower_95 = effect$lower__,
+    upper_95 = effect$upper__
+  )
+}
+
+annual_age_env_ar_model_data <- imap(
+  annual_age_env_models_current_ar,
+  \(model, variable) get_annual_ar_model_data(model, variable)
 )
 
-annual_age_env_predictive_combined
+annual_age_env_ar_effects <- imap_dfr(
+  annual_age_env_models_current_ar,
+  \(model, variable) {
+    map_dfr(
+      0:3,
+      \(lag) get_annual_ar_effect(model, variable, lag, annual_age_env_ar_model_data[[variable]])
+    )
+  }
+)
+
+annual_age_env_ar_effect_observations <- imap_dfr(
+  annual_age_env_ar_model_data,
+  \(model_data, variable) {
+    map_dfr(
+      0:3,
+      \(lag) {
+        env_value <- model_data[[paste0(variable, "_lag", lag)]]
+        tibble(
+          covariate = variable,
+          lag = paste0("lag", lag),
+          env_value = env_value,
+          mean_age = model_data$mean_age,
+          n_fish = model_data$n_fish
+        )
+      }
+    )
+  }
+)
+
+# -----------------------------
+# 4.42 autoregressive conditional effect plots by index
+# -----------------------------
+
+annual_age_env_ar_effect_plots_by_index <- imap(
+  split(
+    annual_age_env_ar_effects,
+    sub("_.*$", "", annual_age_env_ar_effects$covariate)
+  ),
+  \(index_effects, index) {
+    index_effects$covariate <- factor(index_effects$covariate, levels = names(annual_age_env_models_current_ar))
+    index_effects$lag <- factor(index_effects$lag, levels = paste0("lag", 0:3))
+    index_observations <- annual_age_env_ar_effect_observations %>%
+      filter(covariate %in% as.character(index_effects$covariate)) %>%
+      mutate(
+        covariate = factor(covariate, levels = names(annual_age_env_models_current_ar)),
+        lag = factor(lag, levels = paste0("lag", 0:3))
+      )
+
+    ggplot(index_effects, aes(x = env_value, y = Estimate)) +
+      geom_ribbon(aes(ymin = lower_95, ymax = upper_95), alpha = 0.2) +
+      geom_line() +
+      geom_point(
+        data = index_observations,
+        aes(x = env_value, y = mean_age, size = n_fish),
+        inherit.aes = FALSE,
+        alpha = 0.5
+      ) +
+      facet_grid(lag ~ covariate, scales = "free_x", labeller = label_both) +
+      scale_size_continuous(trans = "sqrt") +
+      labs(
+        title = paste("Autoregressive model environmental effects:", toupper(index)),
+        subtitle = "Other lags and year held at their medians; AR contribution excluded. Points are unadjusted observations.",
+        x = "Standardized environmental index",
+        y = "Predicted annual mean age (years)",
+        size = "Fish sampled"
+      ) +
+      theme_classic()
+  }
+)
+
+walk(annual_age_env_ar_effect_plots_by_index, print)
+
+# -----------------------------
+# 4.43 autoregressive fitted values and model evaluation
+# -----------------------------
+
+annual_age_env_ar_fitted <- imap_dfr(
+  annual_age_env_models_current_ar,
+  \(model, variable) {
+    fitted_values <- fitted(model, re_formula = NA, probs = c(0.025, 0.975)) %>%
+      as_tibble()
+
+    bind_cols(
+      annual_age_env_ar_model_data[[variable]] %>% select(Year, mean_age, n_fish),
+      fitted_values
+    ) %>%
+      mutate(covariate = variable, residual = mean_age - Estimate)
+  }
+)
+
+annual_age_env_ar_fit_summary <- annual_age_env_ar_fitted %>%
+  group_by(covariate) %>%
+  summarise(
+    n = n(),
+    RMSE = sqrt(mean(residual^2)),
+    MAE = mean(abs(residual)),
+    bias = mean(residual),
+    .groups = "drop"
+  ) %>%
+  arrange(RMSE)
+
+annual_age_env_ar_fit_summary
+
+annual_age_env_ar_fitted_by_index <- split(
+  annual_age_env_ar_fitted,
+  sub("_.*$", "", annual_age_env_ar_fitted$covariate)
+)
+
+annual_age_env_ar_fitted_plots_by_index <- imap(
+  annual_age_env_ar_fitted_by_index,
+  \(index_data, index) {
+    ggplot(index_data, aes(x = Year)) +
+      geom_ribbon(aes(ymin = Q2.5, ymax = Q97.5), alpha = 0.2) +
+      geom_line(aes(y = Estimate), linewidth = 0.8) +
+      geom_point(aes(y = mean_age, size = n_fish), alpha = 0.65) +
+      scale_size_continuous(trans = "sqrt") +
+      facet_wrap(~covariate, ncol = 2) +
+      labs(
+        title = paste("Autoregressive model observed and fitted:", toupper(index)),
+        subtitle = "Line is the posterior expected value; ribbon is the 95% credible interval",
+        x = "Year",
+        y = "Annual mean age (years)",
+        size = "Fish sampled"
+      ) +
+      theme_classic()
+  }
+)
+
+walk(annual_age_env_ar_fitted_plots_by_index, print)
+
+annual_age_env_ar_residual_plots_by_index <- imap(
+  annual_age_env_ar_fitted_by_index,
+  \(index_data, index) {
+    ggplot(index_data, aes(x = Year, y = residual)) +
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      geom_point() +
+      geom_smooth(method = "loess", se = FALSE) +
+      facet_wrap(~covariate, ncol = 2) +
+      labs(
+        title = paste("Autoregressive model residuals:", toupper(index)),
+        x = "Year",
+        y = "Observed - fitted mean age"
+      ) +
+      theme_classic()
+  }
+)
+
+walk(annual_age_env_ar_residual_plots_by_index, print)
+
+annual_age_env_ar_observed_fitted_plots_by_index <- imap(
+  annual_age_env_ar_fitted_by_index,
+  \(index_data, index) {
+    ggplot(index_data, aes(x = Estimate, y = mean_age)) +
+      geom_point() +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+      facet_wrap(~covariate, ncol = 2) +
+      labs(
+        title = paste("Autoregressive model observed versus fitted:", toupper(index)),
+        x = "Fitted mean age",
+        y = "Observed mean age"
+      ) +
+      theme_classic()
+  }
+)
+
+walk(annual_age_env_ar_observed_fitted_plots_by_index, print)
+
+# -----------------------------
+# 4.44 autoregressive posterior predictive intervals
+# -----------------------------
+
+set.seed(123)
+
+annual_age_env_ar_predictive <- imap_dfr(
+  annual_age_env_models_current_ar,
+  \(model, variable) {
+    predictive_draws <- posterior_predict(model, re_formula = NA, ndraws = 2000)
+    predictive_summary <- apply(
+      predictive_draws,
+      2,
+      \(x) c(
+        mean = mean(x),
+        lower_50 = unname(quantile(x, 0.25)),
+        upper_50 = unname(quantile(x, 0.75)),
+        lower_95 = unname(quantile(x, 0.025)),
+        upper_95 = unname(quantile(x, 0.975))
+      )
+    ) %>%
+      t() %>%
+      as_tibble()
+
+    bind_cols(
+      annual_age_env_ar_model_data[[variable]] %>% select(Year, mean_age, n_fish),
+      predictive_summary
+    ) %>%
+      mutate(covariate = variable)
+  }
+)
+
+annual_age_env_ar_predictive_plots_by_index <- imap(
+  split(
+    annual_age_env_ar_predictive,
+    sub("_.*$", "", annual_age_env_ar_predictive$covariate)
+  ),
+  \(index_data, index) {
+    ggplot(index_data, aes(x = Year)) +
+      geom_ribbon(aes(ymin = lower_95, ymax = upper_95), alpha = 0.15) +
+      geom_ribbon(aes(ymin = lower_50, ymax = upper_50), alpha = 0.30) +
+      geom_line(aes(y = mean), linewidth = 0.9) +
+      geom_point(aes(y = mean_age, size = n_fish), alpha = 0.70) +
+      scale_size_continuous(trans = "sqrt") +
+      facet_wrap(~covariate, ncol = 2) +
+      labs(
+        title = paste("Autoregressive model posterior predictions:", toupper(index)),
+        subtitle = "Dark ribbon is the 50% predictive interval; light ribbon is the 95% predictive interval",
+        x = "Year",
+        y = "Annual mean age (years)",
+        size = "Fish sampled"
+      ) +
+      theme_classic()
+  }
+)
+
+walk(annual_age_env_ar_predictive_plots_by_index, print)
