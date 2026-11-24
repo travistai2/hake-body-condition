@@ -10,8 +10,21 @@
 # 4.1 Summarize hake data into annual mean age and combine with environmental variables
 # -----------------------------
 
+# select data source for age analysis
+data_source <- "LWAdat"
+# data_source <- "usdat"
+# data_source <- "LWAdat_can"
+
+if (data_source == "LWAdat") {
+  selected_data <- lwa
+} else if (data_source == "usdat") {
+  selected_data <- lwa
+} else if (data_source == "LWAdat_can") {
+  selected_data <- lwa %>% filter(Source %in% c("CAN_shoreside", "CAN_polish", "CAN_JV", "CAN_acoustic", "Acoustic Canada"))
+}
+
 # summarise annual mean age
-annual_age <- lwa %>%
+annual_age <- selected_data %>%
   group_by(Year) %>%
   summarise(
     mean_age = mean(Age_yrs_numeric, na.rm = TRUE),
@@ -43,29 +56,49 @@ env_seasonal_summarise <- env_long %>%
     values_to = "value"
   ) %>%
   mutate(covariate = paste(covariate, season, sep = "_")) %>%
-  mutate(yearlag1 = year + 1) %>%
+  mutate(
+    yearlag1 = year + 1,
+    yearlag2 = year + 2,
+    yearlag3 = year + 3
+  ) %>%
   select(-season) %>%
   pivot_wider(names_from = covariate, values_from = value)
 
 # join environmental data to current year and 1 year lag to annual mean age data
 annual_age_env_current <- annual_age %>%
-  left_join(env_seasonal_summarise %>% select(-yearlag1),
+  left_join(env_seasonal_summarise %>% select(-yearlag1, -yearlag2, -yearlag3),
     by = c("Year" = "year")
   ) %>%
   mutate(scenario = "currentyear") %>%
   arrange(Year)
 
 annual_age_env_lag1 <- annual_age %>%
-  left_join(env_seasonal_summarise %>% select(-year),
+  left_join(env_seasonal_summarise %>% select(-year, -yearlag2, -yearlag3),
     by = c("Year" = "yearlag1")
   ) %>%
   mutate(scenario = "lag1year") %>%
   arrange(Year)
 
+annual_age_env_lag2 <- annual_age %>%
+  left_join(env_seasonal_summarise %>% select(-year, -yearlag1, -yearlag3),
+    by = c("Year" = "yearlag2")
+  ) %>%
+  mutate(scenario = "lag2year") %>%
+  arrange(Year)
+
+annual_age_env_lag3 <- annual_age %>%
+  left_join(env_seasonal_summarise %>% select(-year, -yearlag1, -yearlag2),
+    by = c("Year" = "yearlag3")
+  ) %>%
+  mutate(scenario = "lag3year") %>%
+  arrange(Year)
+
 # join data together
 annual_age_env <- rbind(
   annual_age_env_current,
-  annual_age_env_lag1
+  annual_age_env_lag1,
+  annual_age_env_lag2,
+  annual_age_env_lag3
 )
 
 names(annual_age_env)
@@ -101,7 +134,7 @@ p_env_variables_time <- annual_age_env %>%
 p_env_variables_time
 
 # save plot
-ggsave(p_env_variables_time, filename = "figures/env_variables_over_time_spring_plot.png", width = 8, height = 5, units = "in", dpi = 300)
+ggsave(p_env_variables_time, filename = "figures/env_variables_over_time_spring_plot.png", width = 8, height = 5, units = "in", dpi = 300, overwrite = FALSE)
 
 # mean age over time
 p_annual_mean_age <- annual_age_env %>%
@@ -122,93 +155,67 @@ p_annual_mean_age <- annual_age_env %>%
 p_annual_mean_age
 
 # save plot
-ggsave(p_annual_mean_age, filename = "figures/annual_mean_age_plot.png", width = 8, height = 5, units = "in", dpi = 300)
+ggsave(p_annual_mean_age, filename = paste0("figures/", data_source, "/annual_mean_age_plot.png"), width = 8, height = 5, units = "in", dpi = 300)
 
 # -----------------------------
 # 4.3 Plot mean age correlations with environmental variables
 # -----------------------------
 
-p_annual_mean_age_env_correlations_current <- annual_age_env %>%
-  filter(scenario == "currentyear") %>%
-  pivot_longer(
-    cols = starts_with(c("pdo", "npgo", "oni", "bi", "npi", "mei")),
-    names_to = "covariate",
-    values_to = "value"
-  ) %>%
-  mutate(
-    index = toupper(sub("_.*", "", covariate)),
-    window = sub(".*_", "", covariate),
-    window = recode(
-      window,
-      jantomar = "Jan to Mar",
-      aprtojun = "Apr to Jun",
-      jultosep = "Jul to Sep",
-      octtodec = "Oct to Dec"
-    ),
-    window = factor(
-      window,
-      levels = c("Jan to Mar", "Apr to Jun", "Jul to Sep", "Oct to Dec")
-    )
-  ) %>%
-  ggplot(aes(x = value, y = mean_age)) +
-  geom_point(alpha = 0.5) +
-  geom_smooth(method = "lm", se = TRUE, color = "blue") +
-  facet_wrap(index ~ window, scales = "free", ncol = 4) +
-  labs(
-    title = "Annual mean age correlations with environmental variables",
-    x = "Environmental variable (standardized)",
-    y = "Mean age (years)"
-  ) +
-  theme_classic()
+# function to plot mean age correlations with env variables
+plot_mean_age_env_correlations <- function(data, scenario_label) {
+  data %>%
+    filter(scenario == scenario_label) %>%
+    pivot_longer(
+      cols = starts_with(c("pdo", "npgo", "oni", "bi", "npi", "mei")),
+      names_to = "covariate",
+      values_to = "value"
+    ) %>%
+    mutate(
+      index = toupper(sub("_.*", "", covariate)),
+      window = sub(".*_", "", covariate),
+      window = recode(
+        window,
+        jantomar = "Jan to Mar",
+        aprtojun = "Apr to Jun",
+        jultosep = "Jul to Sep",
+        octtodec = "Oct to Dec"
+      ),
+      window = factor(
+        window,
+        levels = c("Jan to Mar", "Apr to Jun", "Jul to Sep", "Oct to Dec")
+      )
+    ) %>%
+    ggplot(aes(x = value, y = mean_age)) +
+    geom_point(alpha = 0.5) +
+    geom_smooth(method = "lm", se = TRUE, color = "blue") +
+    facet_wrap(index ~ window, scales = "free", ncol = 4) +
+    labs(
+      title = paste("Annual mean age correlations with environmental variables (", scenario_label, ")", sep = ""),
+      x = "Environmental variable (standardized)",
+      y = "Mean age (years)"
+    ) +
+    theme_classic()
+}
 
-p_annual_mean_age_env_correlations_current
+# plot current year correlations
+plot_mean_age_env_correlations(annual_age_env, "currentyear")
+ggsave(last_plot(), filename = paste0("figures/", data_source, "/annual_mean_age_env_cor_current.png"), width = 8, height = 8, units = "in", dpi = 300)
 
-# save figure
-ggsave(p_annual_mean_age_env_correlations_current, filename = "figures/annual_mean_age_env_cor_current.png", width = 8, height = 8, units = "in", dpi = 300)
+# plot lag 1 year correlations
+plot_mean_age_env_correlations(annual_age_env, "lag1year")
+ggsave(last_plot(), filename = paste0("figures/", data_source, "/annual_mean_age_env_cor_lag1.png"), width = 8, height = 8, units = "in", dpi = 300)
 
-# lag one year
-p_annual_mean_age_env_correlations_lag1 <- annual_age_env %>%
-  filter(scenario == "lag1year") %>%
-  pivot_longer(
-    cols = starts_with(c("pdo", "npgo", "oni", "bi", "npi", "mei")),
-    names_to = "covariate",
-    values_to = "value"
-  ) %>%
-  mutate(
-    index = toupper(sub("_.*", "", covariate)),
-    window = sub(".*_", "", covariate),
-    window = recode(
-      window,
-      jantomar = "Jan to Mar",
-      aprtojun = "Apr to Jun",
-      jultosep = "Jul to Sep",
-      octtodec = "Oct to Dec"
-    ),
-    window = factor(
-      window,
-      levels = c("Jan to Mar", "Apr to Jun", "Jul to Sep", "Oct to Dec")
-    )
-  ) %>%
-  ggplot(aes(x = value, y = mean_age)) +
-  geom_point(alpha = 0.5) +
-  geom_smooth(method = "lm", se = TRUE, color = "blue") +
-  facet_wrap(index ~ window, scales = "free", ncol = 4) +
-  labs(
-    title = "Annual mean age correlations with environmental variables (lag 1 year)",
-    x = "Environmental variable (standardized)",
-    y = "Mean age (years)"
-  ) +
-  theme_classic()
+# plot lag 2 year correlations
+plot_mean_age_env_correlations(annual_age_env, "lag2year")
+ggsave(last_plot(), filename = paste0("figures/", data_source, "/annual_mean_age_env_cor_lag2.png"), width = 8, height = 8, units = "in", dpi = 300)
 
-p_annual_mean_age_env_correlations_lag1
-
-# save figure
-ggsave(p_annual_mean_age_env_correlations_lag1, filename = "figures/annual_mean_age_env_cor_lag1.png", width = 8, height = 8, units = "in", dpi = 300)
-
+# plot lag 3 year correlations
+plot_mean_age_env_correlations(annual_age_env, "lag3year")
+ggsave(last_plot(), filename = paste0("figures/", data_source, "/annual_mean_age_env_cor_lag3.png"), width = 8, height = 8, units = "in", dpi = 300)
 
 # correlations with one season at a time with current and next years mean age
 
-cbind(
+cor_table <- cbind(
   # current year
   annual_age_env %>%
     filter(scenario == "currentyear") %>%
@@ -224,12 +231,48 @@ cbind(
     cor(use = "complete.obs") %>%
     as.data.frame() %>%
     select(mean_age) %>%
-    rename(mean_age_cor_prevyear = mean_age)
-)
+    rename(mean_age_cor_lag1year = mean_age),
+  annual_age_env %>%
+    filter(scenario == "lag2year") %>%
+    select(mean_age, contains(c("pdo", "npgo", "oni", "bi", "npi", "mei"))) %>%
+    cor(use = "complete.obs") %>%
+    as.data.frame() %>%
+    select(mean_age) %>%
+    rename(mean_age_cor_lag2year = mean_age),
+  annual_age_env %>%
+    filter(scenario == "lag3year") %>%
+    select(mean_age, contains(c("pdo", "npgo", "oni", "bi", "npi", "mei"))) %>%
+    cor(use = "complete.obs") %>%
+    as.data.frame() %>%
+    select(mean_age) %>%
+    rename(mean_age_cor_lag3year = mean_age)
+) %>%
+  rownames_to_column(var = "env_variable") %>%
+  mutate(
+    index = toupper(sub("_.*", "", env_variable)),
+    window = sub(".*_", "", env_variable),
+    window = factor(window, levels = c("jantomar", "aprtojun", "jultosep", "octtodec"))
+  )
 
-# previous year seems to generally have stronger correlations with mean age than the current year
-# previous year effects on mean age could mean environmental effects on body condition affecting survival and reproduction
-# current year effects on mean age could reflect immediate environmental influences on survival
+ggplot(cor_table, aes(x = window)) +
+  geom_point(aes(y = mean_age_cor_currentyear, color = "Current Year")) +
+  geom_point(aes(y = mean_age_cor_lag1year, color = "Lag 1 Year")) +
+  geom_point(aes(y = mean_age_cor_lag2year, color = "Lag 2 Year")) +
+  geom_point(aes(y = mean_age_cor_lag3year, color = "Lag 3 Year")) +
+  facet_wrap(~index, scales = "free") +
+  labs(
+    x = "Environmental Variable",
+    y = "Correlation with Mean Age",
+    color = "Scenario"
+  )
+
+ggsave(last_plot(), filename = paste0("figures/", data_source, "/annual_mean_age_env_cor_comparison.png"), width = 8, height = 8, units = "in", dpi = 300)
+
+# For all data:
+# lag 2 year seems to generally have stronger correlations with mean age than the current or lag 1year
+# lag 2 year effects on mean age could mean environmental effects on body condition affecting survival and reproduction
+# lag 1 year effects on mean age could indicate delayed environmental impacts on survival and reproduction
+# current year effects on mean age could reflect immediate environmental influences on survival (but not necessarily reproduction)
 
 # -----------------------------
 # 4.4 Function to run individual models for each environmental covariate
@@ -239,6 +282,7 @@ cbind(
 fit_annual_age_env_model <- function(
   data,
   env_variable,
+  year_lag,
   output_directory = "model-outputs/annual_mean_age_env",
   seed = 22
 ) {
@@ -306,8 +350,11 @@ fit_annual_age_env_model <- function(
     file = file.path(
       output_directory,
       paste0(
-        "annual_mean_age_",
-        env_variable
+        data_source,
+        "_annual_mean_age_",
+        env_variable,
+        "_",
+        year_lag
       )
     ),
     file_refit = "always",
@@ -328,6 +375,32 @@ env_var_names <- c(
   "mei_jantomar", "mei_aprtojun", "mei_jultosep", "mei_octtodec"
 )
 
+
+# run model for current year
+# scale env variables
+annual_age_env_current_scaled <- annual_age_env_current %>%
+  mutate(
+    across(
+      all_of(env_var_names),
+      ~ as.vector(scale(.x)),
+      .names = "{.col}"
+    )
+  )
+
+# run model
+annual_age_env_models_current <- env_var_names %>%
+  set_names() %>%
+  map(
+    \(env_variable) {
+      fit_annual_age_env_model(
+        data = annual_age_env_current_scaled,
+        env_variable = env_variable,
+        year_lag = "current"
+      )
+    }
+  )
+
+# run model for lag 1 year
 # scale env variables
 annual_age_env_lag1_scaled <- annual_age_env_lag1 %>%
   mutate(
@@ -339,21 +412,83 @@ annual_age_env_lag1_scaled <- annual_age_env_lag1 %>%
   )
 
 # run model
-annual_age_env_models <- env_var_names %>%
+annual_age_env_models_lag1 <- env_var_names %>%
   set_names() %>%
   map(
     \(env_variable) {
       fit_annual_age_env_model(
         data = annual_age_env_lag1_scaled,
-        env_variable = env_variable
+        env_variable = env_variable,
+        year_lag = "lag1"
+      )
+    }
+  )
+
+# run model for lag 2 year
+# scale env variables
+annual_age_env_lag2_scaled <- annual_age_env_lag2 %>%
+  mutate(
+    across(
+      all_of(env_var_names),
+      ~ as.vector(scale(.x)),
+      .names = "{.col}"
+    )
+  )
+
+# run model
+annual_age_env_models_lag2 <- env_var_names %>%
+  set_names() %>%
+  map(
+    \(env_variable) {
+      fit_annual_age_env_model(
+        data = annual_age_env_lag2_scaled,
+        env_variable = env_variable,
+        year_lag = "lag2"
+      )
+    }
+  )
+
+# run model for lag 3 year
+# scale env variables
+annual_age_env_lag3_scaled <- annual_age_env_lag3 %>%
+  mutate(
+    across(
+      all_of(env_var_names),
+      ~ as.vector(scale(.x)),
+      .names = "{.col}"
+    )
+  )
+
+# run model
+annual_age_env_models_lag3 <- env_var_names %>%
+  set_names() %>%
+  map(
+    \(env_variable) {
+      fit_annual_age_env_model(
+        data = annual_age_env_lag3_scaled,
+        env_variable = env_variable,
+        year_lag = "lag3"
       )
     }
   )
 
 
+# combine outputs and paste year_lag name for each variable name
+names(annual_age_env_models_current) <- paste0(env_var_names, "_current")
+names(annual_age_env_models_lag1) <- paste0(env_var_names, "_lag1")
+names(annual_age_env_models_lag2) <- paste0(env_var_names, "_lag2")
+names(annual_age_env_models_lag3) <- paste0(env_var_names, "_lag3")
+
+annual_age_env_models_all <- c(
+  annual_age_env_models_current,
+  annual_age_env_models_lag1,
+  annual_age_env_models_lag2,
+  annual_age_env_models_lag3
+)
+
 # check model diagnostics
 annual_age_env_diagnostics <- imap_dfr(
-  annual_age_env_models,
+  annual_age_env_models_all,
   \(model, variable) {
     # Posterior parameter draws
     draws <- posterior::as_draws_array(model)
@@ -406,7 +541,7 @@ extract_annual_env_draws <- function(
 ) {
   coefficient_name <- paste0(
     "b_",
-    env_variable
+    sub("^(.*)_(current|lag1|lag2|lag3)$", "\\1", env_variable)
   )
 
   model_draws <- as_draws_df(model)
@@ -427,7 +562,7 @@ extract_annual_env_draws <- function(
 
 # run function
 annual_age_env_draws <- imap_dfr(
-  annual_age_env_models,
+  annual_age_env_models_all,
   \(model, variable) {
     extract_annual_env_draws(
       model = model,
@@ -459,6 +594,16 @@ annual_age_env_draws <- annual_age_env_draws %>%
         "Oct to Dec",
       TRUE ~ "Other"
     ),
+    exposure_window = factor(
+      exposure_window,
+      levels = c(
+        "Oct to Dec",
+        "Jul to Sep",
+        "Apr to Jun",
+        "Jan to Mar",
+        "Other"
+      )
+    ),
     index = factor(
       index,
       levels = c(
@@ -470,27 +615,25 @@ annual_age_env_draws <- annual_age_env_draws %>%
         "MEI"
       )
     ),
-    exposure_window = factor(
-      exposure_window,
-      levels = c(
-        "Oct to Dec",
-        "Jul to Sep",
-        "Apr to Jun",
-        "Jan to Mar",
-        "Other"
-      )
+    year_lag = case_when(
+      grepl("_current$", covariate) ~ "current",
+      grepl("_lag1$", covariate) ~ "lag1",
+      grepl("_lag2$", covariate) ~ "lag2",
+      grepl("_lag3$", covariate) ~ "lag3",
+      TRUE ~ "Other"
     )
   )
 
 # -----------------------------
-# 5.6 summarise posterior coefficints
+# 4.7 summarise posterior coefficints
 # -----------------------------
 
 annual_age_env_summary <- annual_age_env_draws %>%
   group_by(
     covariate,
     index,
-    exposure_window
+    exposure_window,
+    year_lag
   ) %>%
   summarise(
     median_beta = median(beta),
@@ -522,10 +665,10 @@ annual_age_env_summary <- annual_age_env_draws %>%
 annual_age_env_summary
 
 # -----------------------------
-# 5.7 plot all posterior coefficient distributions
+# 4.8 plot all posterior coefficient distributions
 # -----------------------------
 
-# plot and save in object
+# plot halfeye and save in object
 annual_age_env_posterior_plot <- ggplot(
   annual_age_env_draws,
   aes(
@@ -548,9 +691,9 @@ annual_age_env_posterior_plot <- ggplot(
     linewidth = 0.6
   ) +
   facet_wrap(
-    vars(index),
-    ncol = 2,
-    scales = "free_x"
+    ~ year_lag + index,
+    nrow = 4
+    # scales = "free_x"
   ) +
   labs(
     title = "Previous year seasonal environment associations with annual mean age",
@@ -569,34 +712,675 @@ annual_age_env_posterior_plot
 
 # save figure
 ggsave(
-  filename = "figures/annual_age_env_posterior_plot.png",
+  filename = paste0("figures/", data_source, "/annual_age_env_posterior_plot.png"),
   plot = annual_age_env_posterior_plot,
   width = 8,
   height = 6
 )
 
+# plot density distribution curve with year_lags on the same plot
+
+annual_age_env_posterior_density_plot <- ggplot(
+  annual_age_env_draws,
+  aes(
+    x = beta,
+    y = exposure_window,
+    colour = factor(year_lag)
+  )
+) +
+  stat_slab(
+    fill = NA
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.6
+  ) +
+  facet_wrap(
+    ~index,
+    ncol = 3,
+    scales = "free_x"
+  ) +
+  labs(
+    title = "Posterior density of environmental effects on annual mean age",
+    x = "Change in annual mean age per 1-SD increase",
+    y = "Environmental exposure window"
+  ) +
+  theme_classic(base_size = 12)
+
+annual_age_env_posterior_density_plot
+
+
+
 # -----------------------------
-# 5.8 forest plot of all posteriors
+# 4.9 forest plot of all posteriors
 # -----------------------------
 
-annual_age_env_forest_data <- annual_age_env_summary %>%
+# function to plot forest plot, then done for each year_lag option
+annual_age_env_forest_plot <- function(
+  data = annual_age_env_summary,
+  lag = "current"
+) {
+  data <- data %>%
+    filter(
+      year_lag == lag
+    )
+
+  ggplot(
+    data,
+    aes(
+      x = mean_beta,
+      y = exposure_window
+    )
+  ) +
+    geom_vline(
+      xintercept = 0,
+      linetype = "dashed",
+      linewidth = 0.6
+    ) +
+    geom_errorbar(
+      aes(
+        xmin = lower_beta,
+        xmax = upper_beta
+      ),
+      width = 0.3
+    ) +
+    geom_point(
+      size = 2.5
+    ) +
+    facet_wrap(
+      vars(index),
+      ncol = 2,
+      scales = "free_x"
+    ) +
+    labs(
+      title = paste0("Posterior environmental effects (", lag, " year) on annual mean age"),
+      subtitle = "Points are means; lines are 95% credible intervals",
+      x = "Change in annual mean age (years)",
+      y = NULL
+    ) +
+    theme_classic(base_size = 12)
+}
+
+# plot current year_lag and save
+annual_age_env_forest_plot(data = annual_age_env_summary, lag = "current")
+ggsave(
+  filename = paste0("figures/", data_source, "/annual_age_env_forest_plot_current.png"),
+  plot = last_plot(),
+  width = 8,
+  height = 6
+)
+
+# plot lag1 year_lag
+annual_age_env_forest_plot(data = annual_age_env_summary, lag = "lag1")
+ggsave(
+  filename = paste0("figures/", data_source, "/annual_age_env_forest_plot_lag1.png"),
+  plot = last_plot(),
+  width = 8,
+  height = 6
+)
+
+# plot lag2 year_lag
+annual_age_env_forest_plot(data = annual_age_env_summary, lag = "lag2")
+ggsave(
+  filename = paste0("figures/", data_source, "/annual_age_env_forest_plot_lag2.png"),
+  plot = last_plot(),
+  width = 8,
+  height = 6
+)
+
+# plot lag3 year_lag
+annual_age_env_forest_plot(data = annual_age_env_summary, lag = "lag3")
+ggsave(
+  filename = paste0("figures/", data_source, "/annual_age_env_forest_plot_lag3.png"),
+  plot = last_plot(),
+  width = 8,
+  height = 6
+)
+
+# -----------------------------
+# 4.10 Ribbon plot of posteriors
+# -----------------------------
+
+# order year lag and season windows chronologically in the summary data
+
+annual_age_env_summary_ribbon <- annual_age_env_summary %>%
   mutate(
-    covariate_label = paste(
-      index,
-      exposure_window,
-      sep = ": "
+    year_lag = factor(
+      year_lag,
+      levels = c("lag3", "lag2", "lag1", "current")
     ),
-    covariate_label = factor(
-      covariate_label,
-      levels = rev(
-        unique(covariate_label)
+    exposure_window = factor(
+      exposure_window,
+      levels = c("Jan to Mar", "Apr to Jun", "Jul to Sep", "Oct to Dec")
+    ),
+    time = as.numeric(as.factor(paste0(as.numeric(year_lag), as.numeric(exposure_window))))
+  ) %>%
+  arrange(year_lag, exposure_window)
+
+
+str(annual_age_env_summary_ribbon)
+
+ggplot(
+  annual_age_env_summary_ribbon,
+  aes(
+    x = time,
+    y = mean_beta
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.6
+  ) +
+  geom_ribbon(
+    aes(
+      ymin = lower_beta,
+      ymax = upper_beta
+    ),
+    alpha = 0.3,
+    colour = NA
+  ) +
+  geom_line(
+    size = 1
+  ) +
+  geom_point(
+    size = 2
+  ) +
+  facet_wrap(
+    vars(index)
+  ) +
+  scale_x_continuous(
+    breaks = unique(annual_age_env_summary_ribbon$time),
+    labels = paste0(
+      rep(levels(annual_age_env_summary_ribbon$year_lag),
+        each = length(levels(annual_age_env_summary_ribbon$exposure_window))
+      ),
+      " - ",
+      substr(levels(annual_age_env_summary_ribbon$exposure_window), 1, 3)
+    )
+  ) +
+  labs(
+    title = "Posterior environmental effects on annual mean age",
+    subtitle = "Points are means; ribbons are 95% credible intervals",
+    x = "Time",
+    y = "Change in annual mean age (years) with +1 SD increase in environmental variable"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1)
+  )
+
+ggsave(
+  filename = paste0("figures/", data_source, "/annual_age_env_ribbon_plot.png"),
+  plot = last_plot(),
+  width = 8,
+  height = 6
+)
+
+# -----------------------------
+# 4.11 testing leftover memory (residuals)
+# -----------------------------
+
+names(annual_age_env_models_all)
+
+fit <- annual_age_env_models_all[[42]]
+
+# 2. Extract residuals and make sure they are ordered by Year
+res_df <- fit$data %>%
+  mutate(
+    residual = residuals(fit)[, "Estimate"]
+  ) %>%
+  arrange(Year)
+
+# 3. Plot the Autocorrelation Function (ACF) of the residuals
+acf(
+  res_df$residual,
+  main = "Residual Autocorrelation (Leftover Memory)"
+)
+
+# Check 1: Overall distribution (Does the model capture sharp cohort drops and old-age peaks?)
+pp_check(fit, ndraws = 100) +
+  ggtitle("Posterior Predictive Check: Density")
+
+# Check 2: Time-series trajectory (Does the model track year-to-year shifts accurately?)
+pp_check(fit, type = "ribbon", x = "Year") +
+  ggtitle("Posterior Predictive Check: Mean Age Over Time")
+
+
+#####
+#####
+#####
+#####
+#####
+
+# -----------------------------
+# 4.21 Annual age environmental model with multiple lags and AR(3) autocorrelation in one model
+# -----------------------------
+
+# function to run annual age environmental model with multiple lags and AR(3) autocorrelation and a spline smoother of year reduced to k = 5
+fit_annual_age_env_model_ar <- function(
+  data,
+  env_variable,
+  data_source,
+  output_directory = "model-outputs/annual_mean_age_env",
+  seed = 22
+) {
+  # 1. Create lag 0, 1, and 2 columns chronologically before filtering NAs
+  model_data <- data %>%
+    arrange(Year) %>%
+    mutate(
+      "{env_variable}_lag0" := .data[[env_variable]],
+      "{env_variable}_lag1" := lag(.data[[env_variable]], 1),
+      "{env_variable}_lag2" := lag(.data[[env_variable]], 2),
+      "{env_variable}_lag3" := lag(.data[[env_variable]], 3)
+    ) %>%
+    filter(
+      if_all(
+        all_of(c("Year", "mean_age", paste0(env_variable, "_lag0"), paste0(env_variable, "_lag1"), paste0(env_variable, "_lag2"))),
+        ~ !is.na(.x)
+      )
+    )
+
+  # 2. Combine all 4 lags, a broader spline (k = 5), and AR(3) autocorrelation
+  model_formula <- bf(
+    as.formula(
+      paste0(
+        "mean_age ~ ",
+        env_variable, "_lag0 + ",
+        env_variable, "_lag1 + ",
+        env_variable, "_lag2 + ",
+        env_variable, "_lag3 + ",
+        "s(Year, k = 5) + ar(time = Year, p = 3)"
       )
     )
   )
 
+  # 3. Updated priors (including tighter slope prior and AR prior)
+  age_priors <- c(
+    prior(normal(0, 1.5), class = "b"),
+    prior(normal(0, 0.5), class = "ar"),
+    prior(normal(8, 3), class = "Intercept"),
+    prior(exponential(1), class = "sds"),
+    prior(exponential(1), class = "sigma"),
+    prior(gamma(2, 0.1), class = "nu")
+  )
 
-annual_age_env_forest_plot <- ggplot(
-  annual_age_env_forest_data,
+  dir.create(
+    output_directory,
+    recursive = TRUE,
+    showWarnings = FALSE
+  )
+
+  brm(
+    formula = model_formula,
+    data = model_data,
+    family = student(),
+    prior = age_priors,
+    chains = 4,
+    iter = 3000,
+    warmup = 1500,
+    backend = "cmdstanr",
+    seed = seed,
+    control = list(
+      adapt_delta = 0.98,
+      max_treedepth = 13
+    ),
+    save_pars = save_pars(
+      all = TRUE
+    ),
+    file = file.path(
+      output_directory,
+      paste0(
+        data_source,
+        "_annual_mean_age_",
+        env_variable,
+        "_multilag_ar3"
+      )
+    ),
+    file_refit = "always",
+    refresh = 500
+  )
+}
+
+# scaled data
+head(annual_age_env_current_scaled)
+
+# run model
+annual_age_env_models_current_ar <- env_var_names %>%
+  set_names() %>%
+  map(
+    \(env_variable) {
+      fit_annual_age_env_model_ar(
+        data = annual_age_env_current_scaled,
+        env_variable = env_variable,
+        data_source = data_source
+      )
+    }
+  )
+
+
+# -----------------------------
+# 4.22 testing leftover memory (residuals) for new model
+# -----------------------------
+
+names(annual_age_env_models_current_ar)
+
+fit <- annual_age_env_models_current_ar[[1]]
+
+# 2. Extract residuals and make sure they are ordered by Year
+res_df <- fit$data %>%
+  mutate(
+    residual = residuals(fit)[, "Estimate"]
+  ) %>%
+  arrange(Year)
+
+# 3. Plot the Autocorrelation Function (ACF) of the residuals
+acf(
+  res_df$residual,
+  main = "Residual Autocorrelation (Leftover Memory)"
+)
+
+# Check 1: Overall distribution (Does the model capture sharp cohort drops and old-age peaks?)
+pp_check(fit, ndraws = 100) +
+  ggtitle("Posterior Predictive Check: Density")
+
+# Check 2: Time-series trajectory (Does the model track year-to-year shifts accurately?)
+pp_check(fit, type = "ribbon", x = "Year") +
+  ggtitle("Posterior Predictive Check: Mean Age Over Time")
+
+# check model diagnostics
+annual_age_env_diagnostics_ar <- imap_dfr(
+  annual_age_env_models_current_ar,
+  \(model, variable) {
+    # Posterior parameter draws
+    draws <- posterior::as_draws_array(model)
+
+    # Parameter-level convergence diagnostics
+    diagnostics <- posterior::summarise_draws(
+      draws,
+      "rhat",
+      "ess_bulk",
+      "ess_tail"
+    )
+
+    # NUTS sampler diagnostics
+    nuts <- brms::nuts_params(model)
+
+    tibble(
+      covariate = variable,
+      maximum_rhat = max(
+        diagnostics$rhat,
+        na.rm = TRUE
+      ),
+      minimum_bulk_ess = min(
+        diagnostics$ess_bulk,
+        na.rm = TRUE
+      ),
+      minimum_tail_ess = min(
+        diagnostics$ess_tail,
+        na.rm = TRUE
+      ),
+      divergences = nuts %>%
+        filter(Parameter == "divergent__") %>%
+        summarise(
+          n = sum(Value)
+        ) %>%
+        pull(n)
+    )
+  }
+)
+
+annual_age_env_diagnostics_ar
+
+
+# -----------------------------
+# 4.23 extract possterior from each model
+# -----------------------------
+
+# function to extract across all models
+extract_annual_env_draws <- function(
+  model,
+  env_variable
+) {
+  # Build the 3 expected brms parameter names for this environmental variable
+  target_coefs <- paste0("b_", env_variable, "_lag", 0:3)
+
+  model_draws <- as_draws_df(model)
+
+  # Check that all 3 lag coefficients exist in the posterior draws
+  missing_coefs <- setdiff(target_coefs, names(model_draws))
+  if (length(missing_coefs) > 0) {
+    stop(
+      "Coefficient(s) not found: ",
+      paste(missing_coefs, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  # Extract and pivot into a tidy tibble matching your original output structure
+  model_draws %>%
+    as_tibble() %>%
+    select(all_of(target_coefs)) %>%
+    pivot_longer(
+      cols = everything(),
+      names_to = "covariate",
+      names_prefix = "^b_",
+      values_to = "beta"
+    ) %>%
+    mutate(
+      env_variable = env_variable,
+      lag = sub(".*_(lag[0-3])$", "\\1", covariate),
+      .before = covariate
+    )
+}
+
+# run function
+annual_age_env_draws_ar <- imap_dfr(
+  annual_age_env_models_current_ar,
+  \(model, variable) {
+    extract_annual_env_draws(
+      model = model,
+      env_variable = variable
+    )
+  }
+)
+
+# add labels for plotting
+annual_age_env_draws_ar <- annual_age_env_draws_ar %>%
+  mutate(
+    index = case_when(
+      grepl("^pdo", covariate) ~ "PDO",
+      grepl("^npgo", covariate) ~ "NPGO",
+      grepl("^oni", covariate) ~ "ONI",
+      grepl("^bi", covariate) ~ "BI",
+      grepl("^npi", covariate) ~ "NPI",
+      grepl("^mei", covariate) ~ "MEI",
+      TRUE ~ covariate
+    ),
+    exposure_window = case_when(
+      grepl("_jantomar", covariate) ~
+        "Jan to Mar",
+      grepl("_aprtojun", covariate) ~
+        "Apr to Jun",
+      grepl("_jultosep", covariate) ~
+        "Jul to Sep",
+      grepl("_octtodec", covariate) ~
+        "Oct to Dec",
+      TRUE ~ "Other"
+    ),
+    exposure_window = factor(
+      exposure_window,
+      levels = c(
+        "Oct to Dec",
+        "Jul to Sep",
+        "Apr to Jun",
+        "Jan to Mar",
+        "Other"
+      )
+    ),
+    index = factor(
+      index,
+      levels = c(
+        "PDO",
+        "NPGO",
+        "ONI",
+        "BI",
+        "NPI",
+        "MEI"
+      )
+    ),
+    year_lag = case_when(
+      grepl("_lag0$", covariate) ~ "lag0",
+      grepl("_lag1$", covariate) ~ "lag1",
+      grepl("_lag2$", covariate) ~ "lag2",
+      grepl("_lag3$", covariate) ~ "lag3",
+      TRUE ~ "Other"
+    )
+  )
+
+# -----------------------------
+# 4.24 summarise posterior coefficints
+# -----------------------------
+
+annual_age_env_summary_ar <- annual_age_env_draws_ar %>%
+  group_by(
+    covariate,
+    index,
+    exposure_window,
+    year_lag
+  ) %>%
+  summarise(
+    median_beta = median(beta),
+    mean_beta = mean(beta),
+    lower_beta = quantile(
+      beta,
+      0.025
+    ),
+    upper_beta = quantile(
+      beta,
+      0.975
+    ),
+    probability_positive = mean(
+      beta > 0
+    ),
+    probability_negative = mean(
+      beta < 0
+    ),
+    probability_abs_gt_0_25 = mean(
+      abs(beta) > 0.25
+    ),
+    probability_abs_gt_0_50 = mean(
+      abs(beta) > 0.50
+    ),
+    .groups = "drop"
+  )
+
+# table of posterior coefficient estimates for each env variables
+annual_age_env_summary_ar
+
+# -----------------------------
+# 4.25 plot all posterior coefficient distributions
+# -----------------------------
+
+# plot halfeye and save in object
+annual_age_env_posterior_plot_ar <- ggplot(
+  annual_age_env_draws_ar,
+  aes(
+    x = beta,
+    y = exposure_window
+  )
+) +
+  stat_halfeye(
+    .width = c(
+      0.50,
+      0.80,
+      0.95
+    ),
+    point_interval = "mean_qi",
+    normalize = "groups"
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.6
+  ) +
+  # facet_wrap(
+  #   ~ year_lag + index,
+  #   nrow = 3
+  # ) +
+  facet_grid(
+    year_lag ~ index,
+    scales = "free_x"
+  ) +
+  labs(
+    title = "Previous year seasonal environment associations with annual mean age",
+    x = "Change in annual mean age per 1-SD increase",
+    y = "Environmental exposure window"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(
+      face = "bold"
+    )
+  )
+
+annual_age_env_posterior_plot_ar
+
+# save figure
+ggsave(
+  filename = paste0("figures/", data_source, "/annual_age_env_posterior_plot_ar.png"),
+  plot = annual_age_env_posterior_plot_ar,
+  width = 8,
+  height = 6
+)
+
+# plot density distribution curve with year_lags on the same plot
+
+annual_age_env_posterior_density_plot_ar <- ggplot(
+  annual_age_env_draws_ar,
+  aes(
+    x = beta,
+    y = exposure_window,
+    colour = factor(year_lag)
+  )
+) +
+  stat_slab(
+    fill = NA
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.6
+  ) +
+  facet_wrap(
+    ~index,
+    ncol = 3,
+    scales = "free_x"
+  ) +
+  labs(
+    title = "Posterior density of environmental effects on annual mean age",
+    x = "Change in annual mean age per 1-SD increase",
+    y = "Environmental exposure window"
+  ) +
+  theme_classic(base_size = 12)
+
+annual_age_env_posterior_density_plot_ar
+
+# save figure
+ggsave(
+  filename = paste0("figures/", data_source, "/annual_age_env_posterior_density_plot_ar.png"),
+  plot = annual_age_env_posterior_density_plot_ar,
+  width = 8,
+  height = 6
+)
+
+# -----------------------------
+# 4.26 forest plot of all posteriors
+# -----------------------------
+
+ggplot(
+  annual_age_env_summary_ar,
   aes(
     x = mean_beta,
     y = exposure_window
@@ -612,44 +1396,296 @@ annual_age_env_forest_plot <- ggplot(
       xmin = lower_beta,
       xmax = upper_beta
     ),
-    height = 0
+    width = 0.3
   ) +
   geom_point(
     size = 2.5
   ) +
-  facet_wrap(
-    vars(index),
-    ncol = 2,
+  facet_grid(
+    year_lag ~ index,
     scales = "free_x"
   ) +
   labs(
-    title = "Posterior environmental effects on annual mean age",
+    title = paste0("Posterior environmental effects on annual mean age"),
     subtitle = "Points are means; lines are 95% credible intervals",
     x = "Change in annual mean age (years)",
     y = NULL
   ) +
   theme_classic(base_size = 12)
 
-annual_age_env_forest_plot
-
-# save figure
+# save plot
 ggsave(
-  filename = "figures/annual_age_env_forest_plot.png",
-  plot = annual_age_env_forest_plot,
+  filename = paste0("figures/", data_source, "/annual_age_env_forest_plot_ar.png"),
+  plot = last_plot(),
   width = 8,
   height = 6
 )
 
+# -----------------------------
+# 4.27 Ribbon plot of posteriors
+# -----------------------------
+
+# order year lag and season windows chronologically in the summary data
+
+annual_age_env_summary_ribbon_ar <- annual_age_env_summary_ar %>%
+  mutate(
+    year_lag = factor(
+      year_lag,
+      levels = c("lag2", "lag1", "lag0")
+    ),
+    exposure_window = factor(
+      exposure_window,
+      levels = c("Jan to Mar", "Apr to Jun", "Jul to Sep", "Oct to Dec")
+    ),
+    time = as.numeric(as.factor(paste0(as.numeric(year_lag), as.numeric(exposure_window))))
+  ) %>%
+  arrange(year_lag, exposure_window)
 
 
+str(annual_age_env_summary_ribbon_ar)
+
+ggplot(
+  annual_age_env_summary_ribbon_ar,
+  aes(
+    x = time,
+    y = mean_beta
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.6
+  ) +
+  geom_ribbon(
+    aes(
+      ymin = lower_beta,
+      ymax = upper_beta
+    ),
+    alpha = 0.3,
+    colour = NA
+  ) +
+  geom_line(
+    size = 1
+  ) +
+  geom_point(
+    size = 2
+  ) +
+  facet_wrap(
+    vars(index)
+  ) +
+  scale_x_continuous(
+    breaks = unique(annual_age_env_summary_ribbon$time),
+    labels = paste0(
+      rep(levels(annual_age_env_summary_ribbon$year_lag),
+        each = length(levels(annual_age_env_summary_ribbon$exposure_window))
+      ),
+      " - ",
+      substr(levels(annual_age_env_summary_ribbon$exposure_window), 1, 3)
+    )
+  ) +
+  labs(
+    title = "Posterior environmental effects on annual mean age",
+    subtitle = "Points are means; ribbons are 95% credible intervals",
+    x = "Time",
+    y = "Change in annual mean age (years) with +1 SD increase in environmental variable"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1)
+  )
+
+# save figure
+ggsave(
+  filename = paste0("figures/", data_source, "/annual_age_env_ribbon_plot_ar.png"),
+  plot = last_plot(),
+  width = 8,
+  height = 6
+)
+
+# -----------------------------
+# 4.28 Cumulative lag effects (across lag0,lag1,lag2)for PDO, NPGO, MEI, ONI, and NPI
+# -----------------------------
+
+# PDO lag
+# Check cumulative 4-year PDO effect (lag0 + lag1 + lag2 + lag3)
+cumulative_pdo <- annual_age_env_models_current_ar[grep("^pdo_", names(annual_age_env_models_current_ar))] %>%
+  imap(\(model, env_var) {
+    draws <- as_draws_df(model)
+    b0 <- draws[[paste0("b_", env_var, "_lag0")]]
+    b1 <- draws[[paste0("b_", env_var, "_lag1")]]
+    b2 <- draws[[paste0("b_", env_var, "_lag2")]]
+    b3 <- draws[[paste0("b_", env_var, "_lag3")]]
+
+    tibble(
+      covariate = env_var,
+      cumulative_beta = b0 + b1 + b2 + b3
+    )
+  }) %>%
+  list_rbind() %>%
+  group_by(covariate) %>%
+  summarise(
+    median_sum = median(cumulative_beta),
+    lower_95 = quantile(cumulative_beta, 0.025),
+    upper_95 = quantile(cumulative_beta, 0.975),
+    prob_positive = mean(cumulative_beta > 0),
+    prob_negative = mean(cumulative_beta < 0)
+  )
+
+# NPGO lag
+# Check cumulative 4-year NPGO effect (lag0 + lag1 + lag2 + lag3)
+cumulative_npgo <- annual_age_env_models_current_ar[grep("^npgo_", names(annual_age_env_models_current_ar))] %>%
+  imap(\(model, env_var) {
+    draws <- as_draws_df(model)
+    b0 <- draws[[paste0("b_", env_var, "_lag0")]]
+    b1 <- draws[[paste0("b_", env_var, "_lag1")]]
+    b2 <- draws[[paste0("b_", env_var, "_lag2")]]
+    b3 <- draws[[paste0("b_", env_var, "_lag3")]]
+
+    tibble(
+      covariate = env_var,
+      cumulative_beta = b0 + b1 + b2 + b3
+    )
+  }) %>%
+  list_rbind() %>%
+  group_by(covariate) %>%
+  summarise(
+    median_sum = median(cumulative_beta),
+    lower_95 = quantile(cumulative_beta, 0.025),
+    upper_95 = quantile(cumulative_beta, 0.975),
+    prob_positive = mean(cumulative_beta > 0),
+    prob_negative = mean(cumulative_beta < 0)
+  )
+
+# MEI lag
+# Check cumulative 4-year MEI effect (lag0 + lag1 + lag2 + lag3)
+cumulative_mei <- annual_age_env_models_current_ar[grep("^mei_", names(annual_age_env_models_current_ar))] %>%
+  imap(\(model, env_var) {
+    draws <- as_draws_df(model)
+    b0 <- draws[[paste0("b_", env_var, "_lag0")]]
+    b1 <- draws[[paste0("b_", env_var, "_lag1")]]
+    b2 <- draws[[paste0("b_", env_var, "_lag2")]]
+    b3 <- draws[[paste0("b_", env_var, "_lag3")]]
+
+    tibble(
+      covariate = env_var,
+      cumulative_beta = b0 + b1 + b2 + b3
+    )
+  }) %>%
+  list_rbind() %>%
+  group_by(covariate) %>%
+  summarise(
+    median_sum = median(cumulative_beta),
+    lower_95 = quantile(cumulative_beta, 0.025),
+    upper_95 = quantile(cumulative_beta, 0.975),
+    prob_positive = mean(cumulative_beta > 0),
+    prob_negative = mean(cumulative_beta < 0)
+  )
+
+# ONI lag
+# Check cumulative 4-year ONI effect (lag0 + lag1 + lag2 + lag3)
+cumulative_oni <- annual_age_env_models_current_ar[grep("^oni_", names(annual_age_env_models_current_ar))] %>%
+  imap(\(model, env_var) {
+    draws <- as_draws_df(model)
+    b0 <- draws[[paste0("b_", env_var, "_lag0")]]
+    b1 <- draws[[paste0("b_", env_var, "_lag1")]]
+    b2 <- draws[[paste0("b_", env_var, "_lag2")]]
+    b3 <- draws[[paste0("b_", env_var, "_lag3")]]
+
+    tibble(
+      covariate = env_var,
+      cumulative_beta = b0 + b1 + b2 + b3
+    )
+  }) %>%
+  list_rbind() %>%
+  group_by(covariate) %>%
+  summarise(
+    median_sum = median(cumulative_beta),
+    lower_95 = quantile(cumulative_beta, 0.025),
+    upper_95 = quantile(cumulative_beta, 0.975),
+    prob_positive = mean(cumulative_beta > 0),
+    prob_negative = mean(cumulative_beta < 0)
+  )
+
+# NPI lag
+# Check cumulative 4-year NPI effect (lag0 + lag1 + lag2 + lag3)
+cumulative_npi <- annual_age_env_models_current_ar[grep("^npi_", names(annual_age_env_models_current_ar))] %>%
+  imap(\(model, env_var) {
+    draws <- as_draws_df(model)
+    b0 <- draws[[paste0("b_", env_var, "_lag0")]]
+    b1 <- draws[[paste0("b_", env_var, "_lag1")]]
+    b2 <- draws[[paste0("b_", env_var, "_lag2")]]
+    b3 <- draws[[paste0("b_", env_var, "_lag3")]]
+
+    tibble(
+      covariate = env_var,
+      cumulative_beta = b0 + b1 + b2 + b3
+    )
+  }) %>%
+  list_rbind() %>%
+  group_by(covariate) %>%
+  summarise(
+    median_sum = median(cumulative_beta),
+    lower_95 = quantile(cumulative_beta, 0.025),
+    upper_95 = quantile(cumulative_beta, 0.975),
+    prob_positive = mean(cumulative_beta > 0),
+    prob_negative = mean(cumulative_beta < 0)
+  )
 
 
+# -----------------------------
+# 4.29 Plot cumulative lag effects for PDO, NPGO, MEI, ONI, and NPI
+# -----------------------------
+
+# combine cumulative lag effects for all environmental variables
+cumulative_all <- bind_rows(
+  cumulative_pdo,
+  cumulative_npgo,
+  cumulative_mei,
+  cumulative_oni,
+  cumulative_npi
+)
+
+# create forest ggplot figure of cumulative effects, faceted by index
+cumulative_all %>%
+  mutate(
+    index = case_when(
+      grepl("^pdo", covariate) ~ "PDO",
+      grepl("^npgo", covariate) ~ "NPGO",
+      grepl("^oni", covariate) ~ "ONI",
+      grepl("^bi", covariate) ~ "BI",
+      grepl("^npi", covariate) ~ "NPI",
+      grepl("^mei", covariate) ~ "MEI",
+      TRUE ~ covariate
+    ),
+    exposure_window = case_when(
+      grepl("_jantomar", covariate) ~
+        "Jan to Mar",
+      grepl("_aprtojun", covariate) ~
+        "Apr to Jun",
+      grepl("_jultosep", covariate) ~
+        "Jul to Sep",
+      grepl("_octtodec", covariate) ~
+        "Oct to Dec",
+      TRUE ~ "Other"
+    ),
+    exposure_window = factor(exposure_window, levels = c("Jan to Mar", "Apr to Jun", "Jul to Sep", "Oct to Dec", "Other"))
+  ) %>%
+  ggplot(aes(x = exposure_window, y = median_sum)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  geom_point() +
+  geom_errorbar(aes(ymin = lower_95, ymax = upper_95), width = 0.2) +
+  facet_wrap(~index, scales = "free_x") +
+  theme_bw() +
+  labs(
+    x = "Exposure window",
+    y = "Cumulative Effect"
+  )
 
 
-
-
-
-
+#####
+#####
+#####
+#####
+### NEED TO UPDATE BELOW SCRIPT STILL
 
 
 # -----------------------------
@@ -665,11 +1701,9 @@ get_model_data <- function(
     "Year",
     "mean_age",
     "n_fish",
-    "year_z",
-    "log_n_fish",
-    "n_months",
     "n_sources",
-    env_variable
+    # only keep index and exposure window and drop lag in env_variable name
+    sub("_(current|lag[1-3])$", "", env_variable)
   )
 
   missing_variables <- setdiff(
@@ -780,12 +1814,15 @@ plot_annual_age_env_effect <- function(
     grepl("^npgo", env_variable) ~ "NPGO",
     grepl("^oni", env_variable) ~ "ONI",
     grepl("^npi", env_variable) ~ "NPI",
+    grepl("^mei", env_variable) ~ "MEI",
     TRUE ~ env_variable
   )
 
   timing_label <- case_when(
-    grepl("_same", env_variable) ~ "Same year",
-    grepl("_prior", env_variable) ~ "Previous year",
+    grepl("current", env_variable) ~ "Current year",
+    grepl("lag1", env_variable) ~ "lag 1 year",
+    grepl("lag2", env_variable) ~ "lag 2 years",
+    grepl("lag3", env_variable) ~ "lag 3 years",
     TRUE ~ ""
   )
 
@@ -848,7 +1885,7 @@ plot_annual_age_env_effect <- function(
 # -----------------------------
 
 annual_age_env_effect_plots <- imap(
-  annual_age_env_models,
+  annual_age_env_models_all,
   \(model, variable) {
     plot_annual_age_env_effect(
       model = model,
@@ -1271,4 +2308,3 @@ annual_age_env_predictive_combined <- wrap_plots(
 )
 
 annual_age_env_predictive_combined
-
