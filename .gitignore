@@ -1,0 +1,5 @@
+# Ignore large model output files
+model-outputs/*
+
+# Ignore all the figures and model outputs
+figures/*
