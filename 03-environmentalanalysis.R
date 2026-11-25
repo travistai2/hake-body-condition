@@ -136,9 +136,9 @@ names(env_wide_rolling)
 # Reset data_source  - choose which data to use
 # All data, or filter only canada or us data
 
-# data_source <- "LWAdat"
+data_source <- "LWAdat"
 # data_source <- "usdat"
-data_source <- "LWAdat_can"
+# data_source <- "LWAdat_can"
 
 if (data_source == "LWAdat") {
   selected_data <- lwa_cond
